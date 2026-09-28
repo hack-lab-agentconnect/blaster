@@ -178,16 +178,54 @@ Convex functions deploy separately with `pnpm convex:deploy`.
 
 ## Gates
 
-`lefthook.yml` runs these before every push, cheapest first:
+`lefthook.yml` runs these before every push, in this order:
 
 | Gate | Enforces |
 | --- | --- |
+| `check:secrets:self-test` | the scanner still separates known-bad from known-good fixtures |
+| `check:secrets` | no credential is committed |
 | `check:naming` | the `{library}/{domainname}/helpers` convention |
 | `check:env` | the manifest and the code agree, in both directions |
 | `check:no-emoji` | no emoji anywhere in the repository |
 | `check:no-font-mono` | forbids any fixed-width font from rendering |
 | `typecheck` | all four packages, strict |
 | `test` | the pure logic |
+
+The secret scan runs first because a credential leak is the worst outcome
+available and the only failure no later gate would catch.
+
+### What the secret gate does
+
+It scans `git ls-files`, so it reads **exactly what would be pushed** and nothing
+else. That matters twice: the 845 vendored documentation files stay out of scope
+automatically, because they legitimately contain example keys in code samples,
+and a file that is only in your working tree cannot be reported as a leak.
+
+It checks three things:
+
+1. **No forbidden file is tracked.** Every `.env.<suffix>` is forbidden except
+   `.env.example`, `.env.template`, and `.env.sample`, matched on the basename so
+   a nested `apps/api/.env.local` is caught too. So are private keys, credential
+   JSON, and `temp_login.json`.
+2. **No known provider credential shape.** Telnyx API keys and webhook tokens,
+   Clerk keys, JWTs (which is what a Twenty API key is), AWS and GitHub tokens,
+   Slack tokens, Stripe live keys, and database URLs carrying a password.
+3. **No plausible secret assigned to a credential-shaped name**, unless the value
+   is an obvious placeholder.
+
+Findings are redacted in the log, as `KEY0…0p`, never the whole value.
+
+The third rule leans on a placeholder allowlist rather than a secret allowlist, so
+a genuinely new credential is caught by default and a false positive has to be
+argued for explicitly.
+
+### Why the scanner has its own self-test
+
+`pnpm run check:secrets:self-test` writes known-bad and known-good fixtures to a
+temporary directory and checks the scanner separates them, so the gate is not
+trusted on trust. It has already earned its place: the first version allowed any
+bare `[a-z0-9-]` value as a placeholder, which also matches a hex API key, so a
+real credential of that shape passed. The self-test caught it.
 
 ## Sequence builder
 

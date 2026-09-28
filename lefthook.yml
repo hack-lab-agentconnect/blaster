@@ -1,10 +1,20 @@
 # Pre-push gates. Every one of these must pass before a commit reaches main.
 #
-# The order is deliberate: the cheap structural checks run first, so an
-# obviously wrong tree fails in a second rather than after a full typecheck.
+# The order is deliberate. A credential leak is the worst outcome available and
+# the only one no later gate would catch, so the secret scan runs first. After
+# that the cheap structural checks run, so an obviously wrong tree fails in a
+# second rather than after a full typecheck.
 pre-push:
   parallel: false
   commands:
+    # First, and self-testing: the scanner proves it still separates known-bad
+    # from known-good fixtures before it is trusted with the real tree.
+    secrets:
+      run: pnpm run check:secrets
+
+    secrets-self-test:
+      run: pnpm run check:secrets:self-test
+
     naming:
       glob: "packages/*/src/**/*.ts"
       run: pnpm run check:naming
