@@ -1,0 +1,26 @@
+# Pre-push gates. Every one of these must pass before a commit reaches main.
+#
+# The order is deliberate: the cheap structural checks run first, so an
+# obviously wrong tree fails in a second rather than after a full typecheck.
+pre-push:
+  parallel: false
+  commands:
+    naming:
+      glob: "packages/*/src/**/*.ts"
+      run: pnpm run check:naming
+
+    env-manifest:
+      glob: "{config/env-vars.json,packages/**/*.ts,apps/**/*.ts,convex/**/*.ts}"
+      run: pnpm run check:env
+
+    brand-no-emoji:
+      run: pnpm run check:no-emoji
+
+    brand-no-font-mono:
+      run: pnpm run check:no-font-mono
+
+    typecheck:
+      run: pnpm run typecheck
+
+    test:
+      run: pnpm run test

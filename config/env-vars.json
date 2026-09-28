@@ -1,0 +1,112 @@
+{
+  "description": "Every environment variable Blaster reads. The name is the contract: the API, the Convex backend, and the docs all read this manifest rather than hardcoding their own lists. A variable is status \"active\" when code reads it, or \"planned\" when the capability is declared but not wired yet, which requires a reason.",
+  "vars": [
+    {
+      "name": "TWENTY_BASE_URL",
+      "status": "active",
+      "consumedBy": ["packages/core/src/twenty/crm/helpers/client.ts"],
+      "required": true,
+      "secret": false,
+      "description": "Origin of the Twenty workspace, without a trailing slash. Records are read from ${TWENTY_BASE_URL}/rest/<object> and metadata from ${TWENTY_BASE_URL}/graphql."
+    },
+    {
+      "name": "TWENTY_API_KEY",
+      "status": "active",
+      "consumedBy": ["packages/core/src/twenty/crm/helpers/client.ts"],
+      "required": true,
+      "secret": true,
+      "description": "Twenty API key, sent as a bearer token on every REST and GraphQL call. Never leaves the server."
+    },
+    {
+      "name": "TWENTY_USER_EMAIL",
+      "status": "planned",
+      "consumedBy": [],
+      "required": false,
+      "secret": false,
+      "reason": "Only needed by the direct-Postgres login path, which is not built. Blaster authenticates to Twenty with an API key today, so there is no user to attribute a login to yet.",
+      "description": "Workspace user email recorded alongside records Blaster writes, for audit."
+    },
+    {
+      "name": "TWENTY_USER_PASSWORD",
+      "status": "planned",
+      "consumedBy": [],
+      "required": false,
+      "secret": true,
+      "reason": "Belongs to the direct-Postgres login path, which is not built. Accepting a password would add a credential Blaster has no use for until that path exists.",
+      "description": "Workspace user password for the direct-Postgres login path. Prefer TWENTY_API_KEY."
+    },
+    {
+      "name": "TWENTY_DATABASE_URL",
+      "status": "planned",
+      "consumedBy": [],
+      "required": false,
+      "secret": true,
+      "reason": "Belongs to the direct-Postgres login path, which is not built. Opening a Postgres connection before anything queries it would be a credential with no reader.",
+      "description": "Read-only Postgres connection used solely to verify a workspace login against core.\"user\". Requires SELECT on that table and nothing else."
+    },
+    {
+      "name": "TELNYX_API_KEY",
+      "status": "active",
+      "consumedBy": ["apps/api/src/index.ts", "packages/core/src/telnyx/messaging/helpers/client.ts"],
+      "required": true,
+      "secret": true,
+      "description": "Telnyx API key. Sending and profile listing both fail without it."
+    },
+    {
+      "name": "TELNYX_MESSAGING_PROFILE_ID",
+      "status": "active",
+      "consumedBy": ["packages/core/src/telnyx/messaging/helpers/profile.ts"],
+      "required": true,
+      "secret": false,
+      "description": "Default messaging profile, used when a recipient country has no more specific profile and when a sending number has no profile bound to it."
+    },
+    {
+      "name": "TELNYX_MESSAGING_PROFILE_US",
+      "status": "active",
+      "consumedBy": ["packages/core/src/telnyx/messaging/helpers/profile.ts"],
+      "required": false,
+      "secret": false,
+      "description": "Profile whitelisted to US, backed by a 10DLC brand and campaign. Selected when the recipient resolves to the United States."
+    },
+    {
+      "name": "TELNYX_MESSAGING_PROFILE_IE",
+      "status": "active",
+      "consumedBy": ["packages/core/src/telnyx/messaging/helpers/profile.ts"],
+      "required": false,
+      "secret": false,
+      "description": "Profile whitelisted to IE and GB, carrying an alphanumeric sender. Selected when the recipient resolves to Ireland or the United Kingdom."
+    },
+    {
+      "name": "TELNYX_MESSAGING_PROFILES",
+      "status": "active",
+      "consumedBy": ["packages/core/src/telnyx/messaging/helpers/profile.ts"],
+      "required": false,
+      "secret": false,
+      "description": "The general country-to-profile mapping, in the compact form US=<id>,IE=<id>,GB=<id>. Any number of countries can be registered this way, and adding one is a configuration change rather than a code change. Takes precedence over the per-country variables."
+    },
+    {
+      "name": "TELNYX_PUBLIC_KEY",
+      "status": "active",
+      "consumedBy": ["apps/api/src/index.ts"],
+      "required": false,
+      "secret": false,
+      "description": "Telnyx public key used to verify inbound webhook signatures. Without it the receiver falls back to a shared-secret gate, which the response states."
+    },
+    {
+      "name": "TELNYX_WEBHOOK_TOKEN",
+      "status": "active",
+      "consumedBy": ["apps/api/src/index.ts"],
+      "required": false,
+      "secret": true,
+      "description": "Shared secret for the webhook receiver, used when no public key is configured to verify signatures."
+    },
+    {
+      "name": "PORT",
+      "status": "active",
+      "consumedBy": ["apps/api/src/index.ts"],
+      "required": false,
+      "secret": false,
+      "description": "Port the Hono server binds. Defaults to 4180."
+    }
+  ]
+}

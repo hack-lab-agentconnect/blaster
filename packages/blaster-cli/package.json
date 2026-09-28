@@ -1,0 +1,19 @@
+{
+  "name": "@blaster/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "blaster": "./src/cli/index.ts"
+  },
+  "scripts": {
+    "start": "tsx src/cli/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@blaster/core": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2"
+  }
+}

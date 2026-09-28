@@ -1,0 +1,6 @@
+# Blaster runs as a private Railcode app. `run_as: app` means the worker gets
+# the platform session rather than acting as a user, and the twenty connector
+# is scoped to the calls this worker actually makes.
+run_as: app
+connectors:
+  twenty: ["*"]

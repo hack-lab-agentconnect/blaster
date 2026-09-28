@@ -1,0 +1,5 @@
+{
+  "app": "blaster",
+  "type": "hono",
+  "server": "apps/api/src/index.ts"
+}
