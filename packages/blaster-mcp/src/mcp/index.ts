@@ -17,16 +17,22 @@ import { Server } from "@modelcontextprotocol/server";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { pathToFileURL } from "node:url";
 import {
+  DEFAULT_OPTIONS,
   TwentyClient,
   buildBreakdown,
   describeEnv,
+  evaluateEligibility,
   evaluateNotifications,
   missingRequired,
   notificationStateKey,
   resolveMessagingProfile,
   sendMessage,
+  summarise,
   uncoveredCountries,
+  validateDraft,
   type Breakdown,
+  type Recipient,
+  type SequenceDraft,
   type TwentyRecord,
 } from "@blaster/core";
 
@@ -111,6 +117,38 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
         filter: { type: "string", description: 'Twenty filter DSL, e.g. status[eq]:CONVERTED.' },
       },
       required: ["object"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "blaster_validate_sequence",
+    description:
+      "Check a message sequence draft and return every problem at once, plus a summary of its steps. Use this before creating a sequence.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        draft: { type: "object", description: "The sequence draft: name, fromNumber, steps, and options." },
+      },
+      required: ["draft"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "blaster_preview_sequence",
+    description:
+      "Dry run a sequence: for each recipient, decide whether the next step may be sent and why not if it may not. Sends nothing and needs no Telnyx credentials.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        options: { type: "object", description: "Sequence options, overriding the defaults." },
+        steps: { type: "array", description: "The sequence steps." },
+        recipients: {
+          type: "array",
+          description:
+            "Recipients with to, country, and optionally doNotContact, hasReplied, and sentInLastDay.",
+        },
+      },
+      required: ["recipients"],
       additionalProperties: false,
     },
   },
@@ -220,6 +258,59 @@ async function runTool(name: string, args: Record<string, unknown>): Promise<Too
       return {
         text: `${records.length} record(s) in ${object}.`,
         structured: { object, count: records.length, records },
+      };
+    }
+
+    case "blaster_validate_sequence": {
+      const raw = args.draft as Partial<SequenceDraft> | undefined;
+      if (!raw) throw new Error("validation: draft is required");
+      const draft: SequenceDraft = {
+        name: raw.name ?? "",
+        fromNumber: raw.fromNumber ?? "",
+        numberProfileId: raw.numberProfileId,
+        campaignId: raw.campaignId,
+        options: { ...DEFAULT_OPTIONS, ...raw.options },
+        steps: (raw.steps ?? []).map((step) => ({
+          text: step.text ?? "",
+          delayHours: step.delayHours ?? 0,
+          isStop: step.isStop ?? false,
+        })),
+      };
+      const problems = validateDraft(draft);
+      const summary = summarise(draft);
+      return {
+        text: problems.length === 0
+          ? `Valid: ${summary.sendingSteps} sending step(s) across ${summary.spanHours}h.`
+          : `${problems.length} problem(s): ${problems.map((p) => `${p.field} ${p.problem}`).join(" ")}`,
+        structured: { valid: problems.length === 0, problems, summary },
+      };
+    }
+
+    case "blaster_preview_sequence": {
+      const recipients = (args.recipients as Recipient[] | undefined) ?? [];
+      const options = { ...DEFAULT_OPTIONS, ...(args.options as Partial<typeof DEFAULT_OPTIONS> | undefined) };
+      const rows = recipients.map((recipient) => {
+        const verdict = evaluateEligibility(process.env, options, recipient);
+        return {
+          recipientId: recipient.id,
+          eligible: verdict.eligible,
+          reason: verdict.reason,
+          detail: verdict.detail,
+          country: verdict.profile?.country ?? null,
+          profileId: verdict.profile?.profileId ?? null,
+        };
+      });
+      const ready = rows.filter((row) => row.eligible);
+      const skipped = rows.filter((row) => !row.eligible);
+      const skipReasons = skipped.reduce<Record<string, number>>((acc, row) => {
+        const key = row.reason ?? "unknown";
+        acc[key] = (acc[key] ?? 0) + 1;
+        return acc;
+      }, {});
+      return {
+        text: `${ready.length} of ${rows.length} recipient(s) would receive the next step.` +
+          (Object.keys(skipReasons).length > 0 ? ` Skipped: ${JSON.stringify(skipReasons)}.` : ""),
+        structured: { total: rows.length, ready: ready.length, skipped: skipped.length, skipReasons, rows },
       };
     }
 

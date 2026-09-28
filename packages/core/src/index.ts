@@ -8,4 +8,5 @@
 export * from "./twenty/crm/index.ts";
 export * from "./telnyx/messaging/index.ts";
 export * from "./pipeline/breakdown/index.ts";
+export * from "./pipeline/sequence/index.ts";
 export * from "./platform/env/index.ts";

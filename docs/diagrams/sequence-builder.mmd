@@ -1,0 +1,47 @@
+%% Building a sequence and deciding who may receive it. The right side is the
+%% part an operator wants before turning a sequence on: a dry run, no sends, and
+%% one grouped reason per skip rather than N identical lines.
+flowchart LR
+  subgraph build["Build - pure, no credentials needed"]
+    DRAFT["Choose a sending number<br/>and optionally a campaign"] --> OPTS["Choose options<br/>stop on reply, daily cap,<br/>skip unregistered countries"]
+    DRAFT --> STEPS["Write the steps<br/>text, delay, stop condition"]
+    OPTS --> VALIDATE["validateDraft<br/>returns every problem at once"]
+    STEPS --> VALIDATE
+    VALIDATE --> SUMMARY["summarise<br/>sending steps, span in hours"]
+  end
+
+  subgraph persist["Persist - Convex"]
+    SEQ[("sequences<br/>number, campaign, options, stepCount")]
+    STEP[("sequenceSteps<br/>ordered, text, delayHours, isStop")]
+    ENR[("sequenceEnrollments<br/>cursor, status, nextDueAt")]
+    SEQ --> STEP
+    SEQ --> ENR
+  end
+
+  VALIDATE -- "valid" --> SEQ
+
+  subgraph dryrun["Dry run - sends nothing"]
+    PREVIEW["evaluateEligibility<br/>per recipient"]
+    PREVIEW --> VERDICT["eligible, or a skip reason"]
+  end
+
+  subgraph send["Send"]
+    DUE["dueEnrollments<br/>nextDueAt at or before now"] --> ELIG{"evaluateEligibility<br/>at send time"}
+    ELIG -- "eligible" --> PROFILE["Resolve the profile from<br/>the recipient's jurisdiction"]
+    ELIG -- "skipped" --> REASON["Record the reason,<br/>do not advance the cursor"]
+    PROFILE --> TELNYX["POST /v2/messages"]
+    TELNYX --> ADVANCE["advance<br/>cursor, nextDueAt from the send time"]
+    ADVANCE --> DUE
+  end
+
+  ENR --> PREVIEW
+  ENR --> DUE
+
+  RULES["do-not-contact is checked first,<br/>so an opt-out is never downgraded<br/>into a profile problem"]:::note
+  ELIG -.-> RULES
+
+  classDef note fill:none,stroke:#5f6f96,stroke-dasharray:4 4,color:#8ea3d6
+  classDef store fill:#1b1030,stroke:#7c5cff,color:#f5f7ff
+  classDef pure fill:#0f1f2a,stroke:#5ee7ff,color:#f5f7ff
+  class SEQ,STEP,ENR store
+  class VALIDATE,SUMMARY,PREVIEW,VERDICT,ELIG,ADVANCE pure

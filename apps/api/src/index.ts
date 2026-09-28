@@ -17,12 +17,20 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import {
+  DEFAULT_OPTIONS,
   TwentyClient,
   describeEnv,
+  evaluateEligibility,
   missingRequired,
   normaliseCountry,
   resolveMessagingProfile,
+  stepText,
+  summarise,
   uncoveredCountries,
+  validateDraft,
+  type Recipient,
+  type SequenceDraft,
+  type SequenceStepDraft,
 } from "@blaster/core";
 import { TelnyxError, listMessagingProfiles, sendMessage } from "./lib/telnyx.ts";
 import { readBreakdownFrom, twentyReader } from "./lib/breakdown-source.ts";
@@ -171,6 +179,84 @@ app.post("/api/messages/send", async (c) => {
   } catch (error) {
     return fail(c, error, "Failed to send the message", 502);
   }
+});
+
+/**
+ * Sequence builder.
+ *
+ * A sequence is validated here before anything is persisted, so a caller gets
+ * every problem at once rather than one per round trip. The rules themselves
+ * live in packages/core and are shared with the CLI and the MCP server.
+ */
+app.post("/api/sequences/validate", async (c) => {
+  const body = (await c.req.json().catch(() => null)) as Partial<SequenceDraft> | null;
+  if (!body) return c.json({ error: "a JSON body is required" }, 400);
+
+  const draft: SequenceDraft = {
+    name: body.name ?? "",
+    fromNumber: body.fromNumber ?? "",
+    numberProfileId: body.numberProfileId,
+    campaignId: body.campaignId,
+    options: { ...DEFAULT_OPTIONS, ...body.options },
+    steps: (body.steps ?? []).map((step) => ({
+      text: step.text ?? "",
+      delayHours: step.delayHours ?? 0,
+      isStop: step.isStop ?? false,
+    })),
+  };
+
+  const problems = validateDraft(draft);
+  return c.json({ valid: problems.length === 0, problems, summary: summarise(draft) });
+});
+
+/**
+ * Dry run: what would happen to each recipient at the current step.
+ *
+ * This is the check an operator wants before turning a sequence on, and it
+ * needs no Telnyx credentials because it never sends.
+ */
+app.post("/api/sequences/preview", async (c) => {
+  const body = (await c.req.json().catch(() => null)) as {
+    options?: Partial<typeof DEFAULT_OPTIONS>;
+    steps?: SequenceStepDraft[];
+    recipients?: Array<Recipient & { cursor?: number }>;
+    fromNumber?: string;
+    numberProfileId?: string;
+  } | null;
+  if (!body?.recipients) return c.json({ error: "recipients is required" }, 400);
+
+  const options = { ...DEFAULT_OPTIONS, ...body.options };
+  const steps = body.steps ?? [{ text: "", delayHours: 0, isStop: false }];
+
+  const rows = body.recipients.map((recipient) => {
+    const verdict = evaluateEligibility(process.env, options, recipient);
+    return {
+      recipientId: recipient.id,
+      eligible: verdict.eligible,
+      reason: verdict.reason,
+      detail: verdict.detail,
+      country: verdict.profile?.country ?? normaliseCountry(recipient.to),
+      profileId: verdict.profile?.profileId ?? null,
+      // The body this recipient would receive, so a dry run shows the message
+      // and not just a verdict about it.
+      text: verdict.eligible ? stepText(steps, recipient.cursor ?? 0) : null,
+    };
+  });
+
+  const ready = rows.filter((row) => row.eligible);
+  const skipped = rows.filter((row) => !row.eligible);
+  return c.json({
+    total: rows.length,
+    ready: ready.length,
+    skipped: skipped.length,
+    // Grouped so a bulk send shows one reason rather than N identical lines.
+    skipReasons: skipped.reduce<Record<string, number>>((acc, row) => {
+      const key = row.reason ?? "unknown";
+      acc[key] = (acc[key] ?? 0) + 1;
+      return acc;
+    }, {}),
+    rows,
+  });
 });
 
 /**

@@ -189,6 +189,67 @@ Convex functions deploy separately with `pnpm convex:deploy`.
 | `typecheck` | all four packages, strict |
 | `test` | the pure logic |
 
+## Sequence builder
+
+A sequence is a sending number, a campaign, a set of options, and an ordered
+list of steps. Build it, dry-run it, then turn it on.
+
+```bash
+# Check a draft and get every problem at once
+echo '{"name":"Spring outreach","fromNumber":"+353871234567",
+       "campaignId":"cmp_123",
+       "options":{"dailyCapPerRecipient":2},
+       "steps":[{"text":"Hi, noticed your work in Cork.","delayHours":0,"isStop":false},
+                {"text":"Following up in two days.","delayHours":48,"isStop":false},
+                {"text":"","delayHours":96,"isStop":true}]}' \
+  | blaster sequence validate
+# Valid. 2 sending step(s) across 48h, with a stop condition.
+```
+
+Dry runs need no Telnyx credentials, because they send nothing:
+
+```bash
+echo "$DRAFT" | blaster sequence preview --recipients '[
+  {"id":"p-ie","to":"+353871234567","country":"IE"},
+  {"id":"p-us","to":"+14155552671","country":"US"},
+  {"id":"p-de","to":"+4915112345678","country":"DE"},
+  {"id":"p-dnc","to":"+353871234568","country":"IE","doNotContact":true}]'
+# 2 of 4 recipient(s) would receive the next step.
+#   [send] p-ie    profile-ie-alpha
+#   [send] p-us    profile-us-10dlc
+#   [skip] p-de    no-profile-for-country
+#   [skip] p-dnc   do-not-contact
+```
+
+The same operations are on all three surfaces:
+
+| Surface | Validate | Dry run |
+| --- | --- | --- |
+| CLI | `blaster sequence validate` | `blaster sequence preview` |
+| MCP | `blaster_validate_sequence` | `blaster_preview_sequence` |
+| HTTP | `POST /api/sequences/validate` | `POST /api/sequences/preview` |
+
+### Options
+
+| Option | Default | What it does |
+| --- | --- | --- |
+| `stopOnReply` | `true` | Stops the sequence as soon as the recipient replies |
+| `respectDoNotContact` | `true` | Never sends to an opted-out prospect |
+| `requireProfileForCountry` | `true` | Skips a recipient whose country has no registered profile, instead of sending from the default and letting the carrier reject it |
+| `dailyCapPerRecipient` | `0` | Ceiling on messages per recipient per day. `0` means no cap |
+
+### Why eligibility is checked twice
+
+Once in the dry run, so an operator sees who is skipped before turning anything
+on, and again at send time, because a recipient can opt out between the two. The
+send-time check is the one that counts; the dry run is a preview of it.
+
+A skip never advances the cursor. The step is still owed and the reason is
+recorded, so an operator can either fix the cause or pause the sequence rather
+than silently losing the message.
+
+See [docs/diagrams/sequence-builder.mmd](docs/diagrams/sequence-builder.mmd).
+
 ## Documentation
 
 - [docs/README.md](docs/README.md) — authored versus vendored, and the

@@ -10,16 +10,22 @@
  */
 
 import {
+  DEFAULT_OPTIONS,
   TwentyClient,
   buildBreakdown,
   describeEnv,
+  evaluateEligibility,
   evaluateNotifications,
   missingRequired,
   notificationStateKey,
   resolveMessagingProfile,
   sendMessage,
+  summarise,
   uncoveredCountries,
+  validateDraft,
   type Breakdown,
+  type Recipient,
+  type SequenceDraft,
   type TwentyRecord,
 } from "@blaster/core";
 
@@ -63,6 +69,7 @@ Read and act on the pipeline.
   send --to <number> --from <number> --text <text>
                                Send one SMS on the recipient's profile
   capabilities                 Every capability and the surface that implements it
+  sequence validate|preview    Build and dry run a message sequence
 
 Options
   --json                       Machine-readable output
@@ -199,11 +206,126 @@ async function main(): Promise<number> {
       return 0;
     }
 
+    case "sequence": {
+      const action = positional[0];
+      if (action === "validate" || action === "check") return await sequenceValidate(flags, json);
+      if (action === "preview") return await sequencePreview(flags, json);
+      if (action === "help" || action === undefined) {
+        console.log(SEQUENCE_USAGE);
+        return 0;
+      }
+      console.error(`blaster sequence: unknown action "${action}"\n${SEQUENCE_USAGE}`);
+      return 1;
+    }
+
     default: {
       console.error(`blaster: unknown command "${command}"\n${USAGE}`);
       return 1;
     }
   }
+}
+
+const SEQUENCE_USAGE = `Usage: blaster sequence <action>
+
+  validate   Check a sequence draft and print every problem at once
+  preview    Dry run: who would receive the next step, and who is skipped
+
+A draft is JSON on stdin or via --draft, for example:
+  {
+    "name": "Spring outreach",
+    "fromNumber": "+353871234567",
+    "campaignId": "<twenty campaign id>",
+    "options": { "stopOnReply": true, "dailyCapPerRecipient": 2 },
+    "steps": [
+      { "text": "First message", "delayHours": 0, "isStop": false },
+      { "text": "Follow up in two days", "delayHours": 48, "isStop": false }
+    ]
+  }`;
+
+/** Read stdin to the end, or return null when there is nothing piped in. */
+async function readStdin(): Promise<string | null> {
+  if (process.stdin.isTTY) return null;
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
+  const text = Buffer.concat(chunks).toString("utf8").trim();
+  return text.length > 0 ? text : null;
+}
+
+/** A draft arrives on stdin or through --draft, so it can be piped or inlined. */
+async function draftFrom(flags: Map<string, string | boolean>): Promise<SequenceDraft | null> {
+  const inline = flags.get("draft");
+  const source = typeof inline === "string" && inline.length > 0 ? inline : await readStdin();
+  if (!source) {
+    console.error("blaster sequence: pass a draft as JSON on stdin or with --draft");
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(source) as Partial<SequenceDraft>;
+    return {
+      name: parsed.name ?? "",
+      fromNumber: parsed.fromNumber ?? "",
+      numberProfileId: parsed.numberProfileId,
+      campaignId: parsed.campaignId,
+      options: { ...DEFAULT_OPTIONS, ...parsed.options },
+      steps: (parsed.steps ?? []).map((step) => ({
+        text: step.text ?? "",
+        delayHours: step.delayHours ?? 0,
+        isStop: step.isStop ?? false,
+      })),
+    };
+  } catch (error) {
+    console.error(`blaster sequence: draft is not valid JSON: ${(error as Error).message}`);
+    return null;
+  }
+}
+
+async function sequenceValidate(flags: Map<string, string | boolean>, json: boolean): Promise<number> {
+  const draft = await draftFrom(flags);
+  if (!draft) return 1;
+  const problems = validateDraft(draft);
+  const summary = summarise(draft);
+  if (json) {
+    console.log(asJson({ valid: problems.length === 0, problems, summary }));
+  } else if (problems.length === 0) {
+    console.log(
+      `Valid. ${summary.sendingSteps} sending step(s) across ${summary.spanHours}h` +
+        `${summary.stopStep ? ", with a stop condition" : ""}.`,
+    );
+  } else {
+    for (const problem of problems) console.error(`  ${problem.field}: ${problem.problem}`);
+  }
+  return problems.length === 0 ? 0 : 1;
+}
+
+async function sequencePreview(flags: Map<string, string | boolean>, json: boolean): Promise<number> {
+  const draft = await draftFrom(flags);
+  if (!draft) return 1;
+  const recipients = (flags.get("recipients") as string | undefined) ?? "[]";
+  let parsedRecipients: Recipient[];
+  try {
+    parsedRecipients = JSON.parse(recipients) as Recipient[];
+  } catch (error) {
+    console.error(`blaster sequence preview: --recipients is not valid JSON: ${(error as Error).message}`);
+    return 1;
+  }
+
+  const rows = parsedRecipients.map((recipient) => {
+    const verdict = evaluateEligibility(process.env, draft.options, recipient);
+    return { id: recipient.id, ...verdict };
+  });
+  const ready = rows.filter((row) => row.eligible);
+  const skipped = rows.filter((row) => !row.eligible);
+
+  if (json) {
+    console.log(asJson({ total: rows.length, ready: ready.length, skipped: skipped.length, rows }));
+  } else {
+    console.log(`${ready.length} of ${rows.length} recipient(s) would receive the next step.`);
+    for (const row of rows) {
+      const mark = row.eligible ? "send" : "skip";
+      console.log(`  [${mark}] ${row.id.padEnd(24)} ${row.eligible ? row.profile?.profileId ?? "" : row.reason ?? ""}`);
+    }
+  }
+  return 0;
 }
 
 function formatCapabilities(): string {
