@@ -1,0 +1,36 @@
+%% Messaging profile selection. The ordering is the whole point: a profile bound
+%% to the sending number outranks the country rule, the country rule outranks the
+%% default, and an unregistered country is reported rather than silently absorbed.
+flowchart TD
+  START["Send one SMS"] --> BOUND{"Sending number declares<br/>a profile?"}
+  BOUND -- "yes, operator set it" --> BOUNDWIN["Use the bound profile<br/>reason: bound-to-number"]
+  BOUND -- "no" --> PARSE["Resolve the recipient country"]
+
+  PARSE --> SRC{"Where does the country<br/>come from?"}
+  SRC -- "explicit country field" --> USEC["Use it"]
+  SRC -- "otherwise parse the number" --> NUM["libphonenumber-js<br/>strict parse"]
+  NUM --> RES{"Country resolved?"}
+  RES -- "no" --> UNRES["Country stays null<br/>an unparseable number is not guessed at"]
+  RES -- "yes" --> USEC
+  USEC --> MAP{"Country registered in<br/>TELNYX_MESSAGING_PROFILES?"}
+
+  MAP -- "yes" --> HIT["Use the country profile<br/>reason: recipient-country"]
+  MAP -- "no" --> DEFAULT{"Default profile set?"}
+  DEFAULT -- "yes" --> WARN["Fall back to the default<br/>reason: default-fallback<br/>plus a warning naming the variable"]
+  DEFAULT -- "no" --> NONE["Refuse to send<br/>reason: no-profile-configured"]
+
+  BOUNDWIN --> DONE["POST /v2/messages"]
+  HIT --> DONE
+  WARN --> DONE
+  UNRES --> DEFAULT
+
+  NOTE["US needs 10DLC. IE and GB cannot use 10DLC at all<br/>and need an alphanumeric sender. A message sent from the<br/>wrong registration is accepted by Telnyx and then rejected<br/>by the carrier, so this is resolved before the send."]:::note
+  DONE -.-> NOTE
+
+  classDef note fill:none,stroke:#5f6f96,stroke-dasharray:4 4,color:#8ea3d6
+  classDef good fill:#0f2a1c,stroke:#4ade80,color:#f5f7ff
+  classDef warn fill:#2a1f0f,stroke:#fbbf24,color:#f5f7ff
+  classDef stop fill:#2a0f0f,stroke:#f87171,color:#f5f7ff
+  class HIT,BOUNDWIN good
+  class WARN warn
+  class NONE stop

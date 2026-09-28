@@ -1,0 +1,36 @@
+%% Why the domain library is separate: the three surfaces answer from the same
+%% code, so a CLI result, an MCP result, and an HTTP result cannot disagree.
+flowchart LR
+  subgraph surfaces["Surfaces - no business rules"]
+    A["blaster breakdown"]
+    B["blaster_messaging_profile"]
+    C["GET /api/breakdown"]
+    D["GET /api/messaging/profile"]
+  end
+
+  subgraph entrypoints["Domain entrypoints"]
+    BRK["pipeline/breakdown/index.ts"]
+    MSG["telnyx/messaging/index.ts"]
+  end
+
+  subgraph internals["Helpers - replaceable internals"]
+    BUILD["build.ts<br/>buildBreakdown, evaluateNotifications"]
+    PROF["profile.ts<br/>normaliseCountry, resolveMessagingProfile"]
+    LIB["client.ts<br/>unwrapList, listPage"]
+    NUM["libphonenumber-js"]
+  end
+
+  A --> BRK
+  B --> MSG
+  C --> BRK
+  D --> MSG
+  BRK --> BUILD
+  MSG --> PROF
+  BUILD --> LIB
+  PROF --> NUM
+
+  NOTE["A helper may not import its own domain barrel.<br/>Callers import the domain, so the internal shape<br/>can change without touching a call site."]:::note
+  BUILD -.-> NOTE
+  PROF -.-> NOTE
+
+  classDef note fill:none,stroke:#5f6f96,stroke-dasharray:4 4,color:#8ea3d6

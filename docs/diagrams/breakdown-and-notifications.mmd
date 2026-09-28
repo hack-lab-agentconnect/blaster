@@ -1,0 +1,32 @@
+%% From Twenty rows to a delivered notification. The builder and the rules are
+%% pure, which is why the whole chain is testable with no workspace and no
+%% credentials; the state key is what stops a poller repeating itself.
+flowchart TD
+  READ["Read agencyLeads and agencyCalls<br/>keyset paging on id"] --> NORMAL["Unwrap whichever envelope<br/>Twenty returned"]
+  NORMAL --> SELECT["Read every SELECT through<br/>selectValue, since a select arrives<br/>as a string or as value/label"]
+
+  SELECT --> BUILD["buildBreakdown<br/>pure function"]
+  BUILD --> SLICES["Count into slices<br/>lead status, call outcome"]
+  SLICES --> RATES["Rates and averages<br/>answer rate, conversion,<br/>average duration"]
+
+  RATES --> RULES["evaluateNotifications<br/>thresholds over the breakdown"]
+  RULES --> FIRED{"Any rule fires?"}
+  FIRED -- "no" --> NONE["stateKey is none"]
+  FIRED -- "yes" --> KEY["stateKey is the sorted set<br/>of firing rule ids"]
+
+  KEY --> SEEN{"Has this exact set<br/>been delivered?"}
+  SEEN -- "yes" --> SUPPRESS["Suppress. Do not announce<br/>an unchanged condition again."]
+  SEEN -- "no" --> RECORD["recordNotification<br/>Convex mutation, keyed by stateKey"]
+  RECORD --> DELIVER["Deliver once"]
+
+  RULE1["pipeline-empty"] -.-> RULES
+  RULE2["answer-rate-low"] -.-> RULES
+  RULE3["do-not-contact-spike"] -.-> RULES
+  RULE4["counts-truncated"] -.-> RULES
+
+  NOTE["A change in the firing set changes the key, so a transition is<br/>deliverable and a steady state is not. Without the key an<br/>unchanged condition is re-announced on every poll."]:::note
+  KEY -.-> NOTE
+
+  classDef note fill:none,stroke:#5f6f96,stroke-dasharray:4 4,color:#8ea3d6
+  classDef pure fill:#0f1f2a,stroke:#5ee7ff,color:#f5f7ff
+  class BUILD,SLICES,RATES,RULES pure

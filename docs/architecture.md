@@ -20,6 +20,9 @@ dependency it needs and delegates. Anything that writes provider state is a
 Convex function rather than a route, so there is exactly one owner of a write
 and the two runtimes cannot disagree about it.
 
+The full picture, including the mounted components and the two external
+providers, is in [diagrams/system-overview.mmd](diagrams/system-overview.mmd).
+
 ## Why Hono and Convex together
 
 Convex already owns the database, scheduling, and the two mounted components
@@ -60,7 +63,8 @@ helper file, so the internal shape can change without touching call sites. See
 
 The split between step 2 and step 3 is what makes the notification logic
 testable. The rules are thresholds over a value, not code that reaches out to a
-provider.
+provider. See
+[diagrams/breakdown-and-notifications.mmd](diagrams/breakdown-and-notifications.mmd).
 
 ## Twenty integration
 
@@ -99,6 +103,12 @@ Resolution order, most specific first:
 A country with no dedicated profile falls back to the default and returns a
 warning naming the variable to set. That is a deployment gap, and the response
 says so instead of hiding it.
+
+Which countries have a profile is configuration, not code: see
+[diagrams/messaging-profile-resolution.mmd](diagrams/messaging-profile-resolution.mmd)
+for the full decision, and
+[diagrams/send-message-sequence.mmd](diagrams/send-message-sequence.mmd) for one
+message end to end including the inbound webhook.
 
 ## Components
 

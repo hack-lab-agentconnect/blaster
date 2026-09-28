@@ -1,0 +1,43 @@
+%% What ships where, and what has to pass before anything is pushed.
+flowchart TB
+  subgraph hosting["Hosting"]
+    RAIL["railcode.dev<br/>private Railcode app"]
+    CVX["Convex Cloud<br/>functions, schema, components"]
+    TWENTYHOST["Twenty workspace"]
+  end
+
+  subgraph repo["Repository"]
+    CFG[("railcode.json<br/>app, type, server")]
+    MAN[("manifest.yaml<br/>run_as app, twenty connector")]
+    HOOK[("lefthook.yml<br/>pre-push")]
+    ENVF[("config/env-vars.json")]
+    SECRET[".env.local<br/>gitignored"]
+  end
+
+  CFG --> RAIL
+  MAN --> RAIL
+  RAIL --> CVX
+  RAIL --> TWENTYHOST
+
+  ENVF -. "names only" .-> SECRET
+  SECRET -. "values" .-> RAIL
+  SECRET -. "values" .-> CVX
+
+  subgraph gates["Pre-push gates, cheapest first"]
+    G1["check:naming<br/>library/domainname/helpers"]
+    G2["check:env<br/>manifest and code agree"]
+    G3["check:no-emoji"]
+    G4["check:no-font-mono"]
+    G5["typecheck<br/>four packages, strict"]
+    G6["test"]
+  end
+
+  HOOK --> G1 --> G2 --> G3 --> G4 --> G5 --> G6
+  G6 --> OK["Ready to push"]
+
+  NOTE["check:env fails in both directions: a variable declared but<br/>unread is dead weight, and a variable read but undeclared is a<br/>dependency nobody documented. A planned variable must carry a reason."]:::note
+  G2 -.-> NOTE
+
+  classDef note fill:none,stroke:#5f6f96,stroke-dasharray:4 4,color:#8ea3d6
+  classDef store fill:#1b1030,stroke:#7c5cff,color:#f5f7ff
+  class CFG,MAN,ENVF store

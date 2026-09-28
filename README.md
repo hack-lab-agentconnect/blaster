@@ -9,6 +9,50 @@ like, and sends SMS through the Telnyx messaging profile registered for the
 recipient's country. It is internally deployed software on `railcode.dev`, and
 it is reachable three ways: a CLI, an MCP server, and an HTTP API.
 
+```mermaid
+flowchart TB
+  subgraph clients["Clients"]
+    CLI["blaster CLI"]
+    MCP["blaster-mcp<br/>MCP over stdio"]
+    WEB["HTTP callers"]
+  end
+  subgraph api["Request surface"]
+    HONO["Hono worker - apps/api<br/>Railcode app on railcode.dev"]
+  end
+  subgraph core["Domain library - packages/core"]
+    CRM["twenty/crm"]
+    MSG["telnyx/messaging"]
+    BRK["pipeline/breakdown"]
+    ENV["platform/env"]
+  end
+  subgraph convex["Convex backend"]
+    FN["blaster.ts<br/>queries and mutations"]
+    TREG["treg component"]
+    TEL["telnyx component"]
+  end
+  TWENTY[("Twenty CRM")]
+  TELNYX["Telnyx API"]
+  MANIFEST[("config/env-vars.json")]
+
+  CLI --> core
+  MCP --> core
+  WEB --> HONO
+  HONO --> core
+  HONO -. "writes" .-> FN
+  CRM --> TWENTY
+  MSG --> TELNYX
+  BRK --> CRM
+  MANIFEST -. "read by" .-> core
+  MANIFEST -. "read by" .-> convex
+  TREG --> FN
+  TEL --> FN
+
+  classDef store fill:#1b1030,stroke:#7c5cff,color:#f5f7ff
+  classDef ext fill:#0b1020,stroke:#5ee7ff,color:#f5f7ff
+  class TWENTY,TELNYX ext
+  class MANIFEST store
+```
+
 ## What it does
 
 - **Reads Twenty.** Leads, calls, and prospects come from the Twenty workspace
@@ -147,7 +191,58 @@ Convex functions deploy separately with `pnpm convex:deploy`.
 
 ## Documentation
 
+- [docs/README.md](docs/README.md) — authored versus vendored, and the
+  suite-to-library map for the 845 files of upstream docs on disk
 - [docs/architecture.md](docs/architecture.md) — how the two runtimes split, the
   Twenty sharp edges, and the profile rules
 - [docs/naming-conventions.md](docs/naming-conventions.md) — the required
   directory structure
+- [docs/diagrams/](docs/diagrams/) — seven Mermaid diagrams covering the system
+  overview, profile resolution, the breakdown and notification flow, the data
+  model, the send sequence, deployment, and the gates
+
+## Diagrams
+
+The two decisions worth seeing before reading code. The full set is in
+[docs/diagrams/](docs/diagrams/).
+
+**Profile resolution, which happens before every send:**
+
+```mermaid
+flowchart TD
+  START["Send one SMS"] --> BOUND{"Sending number<br/>declares a profile?"}
+  BOUND -- "yes" --> BOUNDWIN["Use the bound profile<br/>bound-to-number"]
+  BOUND -- "no" --> PARSE["Resolve the recipient country<br/>libphonenumber-js"]
+  PARSE --> MAP{"Country registered in<br/>TELNYX_MESSAGING_PROFILES?"}
+  MAP -- "yes" --> HIT["Use the country profile<br/>recipient-country"]
+  MAP -- "no" --> DEFAULT{"Default set?"}
+  DEFAULT -- "yes" --> WARN["Default profile, plus a warning<br/>naming the variable to set"]
+  DEFAULT -- "no" --> NONE["Refuse to send<br/>no-profile-configured"]
+  BOUNDWIN --> SEND["POST /v2/messages"]
+  HIT --> SEND
+  WARN --> SEND
+
+  classDef good fill:#0f2a1c,stroke:#4ade80,color:#f5f7ff
+  classDef warn fill:#2a1f0f,stroke:#fbbf24,color:#f5f7ff
+  classDef stop fill:#2a0f0f,stroke:#f87171,color:#f5f7ff
+  class HIT,BOUNDWIN good
+  class WARN warn
+  class NONE stop
+```
+
+**From Twenty rows to a notification that is delivered once:**
+
+```mermaid
+flowchart TD
+  READ["Read agencyLeads and agencyCalls"] --> BUILD["buildBreakdown<br/>pure"]
+  BUILD --> RULES["evaluateNotifications<br/>thresholds over the breakdown"]
+  RULES --> KEY["stateKey is the sorted set<br/>of firing rule ids"]
+  KEY --> SEEN{"Already delivered?"}
+  SEEN -- "yes" --> SUPPRESS["Suppress. Do not re-announce<br/>an unchanged condition."]
+  SEEN -- "no" --> RECORD["recordNotification<br/>keyed by stateKey"]
+  RECORD --> DELIVER["Deliver once"]
+
+  classDef pure fill:#0f1f2a,stroke:#5ee7ff,color:#f5f7ff
+  class BUILD,RULES pure
+```
+

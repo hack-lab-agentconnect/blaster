@@ -1,0 +1,64 @@
+%% Blaster system overview: three request surfaces over one domain library, a
+%% Convex backend holding the mounted components, and two external providers.
+flowchart TB
+  subgraph clients["Clients"]
+    CLI["blaster CLI<br/>packages/blaster-cli"]
+    MCP["blaster-mcp<br/>Model Context Protocol over stdio"]
+    WEB["HTTP callers"]
+  end
+
+  subgraph api["Request surface"]
+    HONO["Hono worker<br/>apps/api<br/>Railcode app on railcode.dev"]
+  end
+
+  subgraph core["Domain library - the only place a rule lives"]
+    CRM["twenty/crm<br/>REST client, envelope unwrapping,<br/>keyset pagination"]
+    MSG["telnyx/messaging<br/>profile resolution, Telnyx client"]
+    BRK["pipeline/breakdown<br/>pure builder, notification rules"]
+    ENV["platform/env<br/>manifest reader"]
+  end
+
+  subgraph convex["Convex backend - Convex Cloud"]
+    SCHEMA["schema.ts<br/>messagingProfiles, notifications,<br/>discoveryRuns"]
+    HTTP["http.ts<br/>read-only routes"]
+    FN["blaster.ts<br/>queries and mutations"]
+    TREG["treg component<br/>discovery with a cost ceiling"]
+    TEL["telnyx component<br/>signature verification"]
+    AMAIL["agentmail component"]
+  end
+
+  subgraph external["External providers"]
+    TWENTY[("Twenty CRM<br/>REST /rest/object<br/>GraphQL /graphql")]
+    TELNYX["Telnyx API<br/>/v2/messages<br/>/v2/messaging_profiles"]
+  end
+
+  MANIFEST[("config/env-vars.json<br/>the environment contract")]
+
+  CLI --> core
+  MCP --> core
+  WEB --> HONO
+  HONO --> core
+  HONO -. "writes" .-> FN
+
+  CRM --> TWENTY
+  MSG --> TELNYX
+  BRK --> CRM
+  ENV --> MANIFEST
+
+  CONVEXCFG["convex.config.ts"] --> TREG
+  CONVEXCFG --> TEL
+  CONVEXCFG --> AMAIL
+  SCHEMA --- FN
+  HTTP --- SCHEMA
+  TREG --> FN
+  TEL --> FN
+
+  MANIFEST -. "read by" .-> core
+  MANIFEST -. "read by" .-> convex
+
+  classDef store fill:#1b1030,stroke:#7c5cff,color:#f5f7ff
+  classDef ext fill:#0b1020,stroke:#5ee7ff,color:#f5f7ff
+  classDef surf fill:#131a33,stroke:#8ea3d6,color:#f5f7ff
+  class TWENTY,TELNYX ext
+  class MANIFEST store
+  class CLI,MCP,WEB,HONO,CRM,MSG,BRK,ENV surf

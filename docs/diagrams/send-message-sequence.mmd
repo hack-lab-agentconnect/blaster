@@ -1,0 +1,38 @@
+%% One message end to end, including the inbound leg. The verification branch is
+%% the honest part: signature verification is preferred, and the fallback says so
+%% in its own response rather than pretending to be equivalent.
+sequenceDiagram
+  autonumber
+  actor Caller
+  participant Surface as CLI / MCP / HTTP
+  participant Core as telnyx/messaging
+  participant Num as libphonenumber-js
+  participant Tel as Telnyx API
+  participant Hook as Webhook receiver
+  participant Cvx as Convex
+
+  Caller->>Surface: send to +353871234567
+  Surface->>Core: resolveMessagingProfile
+  Core->>Num: parse the number
+  Num-->>Core: IE
+  Core->>Core: country registered?
+  alt IE has a registered profile
+    Core-->>Surface: alpha sender profile, recipient-country
+  else IE is unregistered
+    Core-->>Surface: default profile, fallback, with a warning
+  end
+
+  Surface->>Tel: POST /v2/messages with messaging_profile_id
+  Tel-->>Surface: accepted, id and status
+
+  Tel->>Hook: message.finalized
+  alt TELNYX_PUBLIC_KEY is configured
+    Hook->>Hook: verify the signature
+    Hook-->>Tel: 200, verified
+  else no public key
+    Hook->>Hook: check the shared token
+    Hook-->>Tel: 200, verification reported as shared-token
+  end
+
+  Hook->>Cvx: record the outcome
+  Note over Hook,Tel: An unverifiable event is rejected rather<br/>than processed, so an unsigned request cannot<br/>move state.
