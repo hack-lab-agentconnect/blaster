@@ -141,7 +141,7 @@ Convex functions deploy separately with `pnpm convex:deploy`.
 | `check:naming` | the `{library}/{domainname}/helpers` convention |
 | `check:env` | the manifest and the code agree, in both directions |
 | `check:no-emoji` | no emoji anywhere in the repository |
-| `check:no-font-mono` | no monospace font may render |
+| `check:no-font-mono` | forbids any fixed-width font from rendering |
 | `typecheck` | all four packages, strict |
 | `test` | the pure logic |
 

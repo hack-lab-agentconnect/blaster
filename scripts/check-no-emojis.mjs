@@ -51,19 +51,30 @@ const IGNORED_DIRS = new Set([
   'dist',
   'build',
   'coverage',
-  'typesafe',
+  'upstream',
+]);
+
+// Vendored upstream documentation mirrors, pulled in as reference material.
+// Scoped to docs/ by path, deliberately NOT by name: this repository has its own
+// top-level `convex/` and `packages/*/hono`-named source, and a name-based skip
+// would quietly stop brand-checking our own code while appearing to pass.
+const VENDORED_DOC_DIRS = new Set([
   'convex',
+  'telnyx',
   'treg',
-  'nebius',
   'agentmail',
   'hono',
-  'fumadocs',
-  'upstream',
-  // Vendored upstream documentation mirrors, pulled by the docs:* scripts.
-  // These files are not authored here, so the brand rules do not apply to them.
+  'nebius',
+  'typesafe',
   'clerk',
-  'telnyx',
+  'fumadocs',
 ]);
+
+/** True when `dir` is a vendored documentation suite under docs/. */
+function isVendoredDocDir(dir) {
+  const rel = relative(join(root, 'docs'), dir).replace(/\\/g, '/');
+  return VENDORED_DOC_DIRS.has(rel);
+}
 
 // Excludes standard copyright (U+00A9), registered (U+00AE), and trademark (U+2122) symbols
 const EMOJI_REGEX = /(?!\u00A9|\u00AE|\u2122)\p{Extended_Pictographic}/u;
@@ -90,6 +101,7 @@ function walk(dir, out) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
       if (IGNORED_DIRS.has(entry.name)) continue;
+      if (isVendoredDocDir(full)) continue;
       walk(full, out);
       continue;
     }

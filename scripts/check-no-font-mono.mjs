@@ -17,13 +17,33 @@ if (process.env.SKIP_FONT_MONO_CHECK) {
 }
 
 const SCAN_DIRS = [
-  'apps/web/src',
-  'apps/web/index.html',
-  'apps/docs/app',
-  'apps/docs/content',
-  'packages/ui/src',
+  'packages',
+  'apps',
+  'convex',
+  'config',
+  'docs',
   'scripts',
+  'README.md',
 ];
+
+// Vendored upstream documentation mirrors, scoped to docs/ by path so this
+// repository's own `convex/` source is still checked.
+const VENDORED_DOC_DIRS = new Set([
+  'convex',
+  'telnyx',
+  'treg',
+  'agentmail',
+  'hono',
+  'nebius',
+  'typesafe',
+  'clerk',
+  'fumadocs',
+]);
+
+function isVendoredDocDir(dir) {
+  const rel = relative(join(root, 'docs'), dir).replace(/\\/g, '/');
+  return VENDORED_DOC_DIRS.has(rel);
+}
 
 const SCAN_EXT = new Set(['.ts', '.tsx', '.js', '.jsx', '.css', '.html', '.mdx', '.md']);
 
@@ -31,6 +51,11 @@ const SCAN_EXT = new Set(['.ts', '.tsx', '.js', '.jsx', '.css', '.html', '.mdx',
 // there; that definition line is the sanctioned exception (see the comment
 // above it in the file).
 const EXEMPTIONS = [{ file: 'apps/docs/app/globals.css', line: /--font-mono\s*:/ }];
+
+// Referring to this gate by name is not a font declaration. The script is called
+// check:no-font-mono, so any table or sentence that documents it would otherwise
+// fail its own rule, which is how a gate teaches people to route around it.
+const NAME_MENTION = /(^|[^\w-])(?:check:)?no-font-mono([^\w-]|$)/;
 
 // The Tailwind class that resolves to a mono stack, plus concrete mono faces
 // in inline styles. Case-insensitive so renamed/capitalized stacks still trip.
@@ -72,6 +97,7 @@ function scanFile(absPath, violations) {
   const exemption = EXEMPTIONS.find((e) => e.file === rel);
   text.split('\n').forEach((line, i) => {
     if (!regex.test(line)) return;
+    if (NAME_MENTION.test(line)) return;
     if (exemption && exemption.line.test(line)) return;
     violations.push(`${rel}:${i + 1}: ${line.trim()}`);
   });
@@ -82,6 +108,7 @@ function walk(dir, out) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
       if (['node_modules', '.next', '.git', 'dist', 'build', 'coverage'].includes(entry.name)) continue;
+      if (isVendoredDocDir(full)) continue;
       walk(full, out);
       continue;
     }

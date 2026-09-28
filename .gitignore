@@ -5,3 +5,11 @@ dist/
 .env.local
 .vercel/
 .DS_Store
+# Vendored third-party documentation, pulled in as reference material for the
+# libraries this repo actually uses. Not ours to brand-check or commit: see
+# docs/README.md for the suite-to-library map and the local edit notes.
+docs/convex/
+docs/telnyx/
+docs/treg/
+docs/agentmail/
+docs/hono/

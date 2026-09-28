@@ -125,6 +125,6 @@ the countries with no messaging profile configured.
 | --- | --- |
 | `check:naming` | the `{library}/{domainname}/helpers` convention |
 | `check:no-emoji` | no emoji anywhere in the repository |
-| `check:no-font-mono` | no monospace font may render |
+| `check:no-font-mono` | forbids any fixed-width font from rendering |
 | `check:env` | every manifest variable is consumed by a real file |
 | `test` | the pure logic, with no credentials |
