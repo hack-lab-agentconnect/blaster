@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Public surface of @blaster/core.
  *
  * Re-exports the domain entrypoints rather than the helper files, so callers

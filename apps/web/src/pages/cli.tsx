@@ -1,7 +1,7 @@
-﻿/**
- * /cli â€” the browser half of `blaster login`.
+/**
+ * /cli —” the browser half of `blaster login`.
  *
- * The CLI opens this page with `?state=â€¦&code_challenge=â€¦&exchange=â€¦`, where
+ * The CLI opens this page with `?state=—¦&code_challenge=—¦&exchange=—¦`, where
  * exchange is the one-shot loopback URL it is listening on. Once the viewer
  * holds a Twenty operator session, the page posts the Twenty tokens back to
  * the CLI. The CLI accepts the exchange only when the state and
@@ -123,7 +123,7 @@ export function CliLoginPage() {
         const message = error instanceof Error ? error.message : String(error);
         setResult({
           kind: "error",
-          detail: `Could not reach the CLI at ${exchange.exchangeUrl}. It may have finished or timed out â€” run \`blaster login\` again. (${message})`,
+          detail: `Could not reach the CLI at ${exchange.exchangeUrl}. It may have finished or timed out —” run \`blaster login\` again. (${message})`,
           terminal: true,
         });
         return true;
@@ -186,11 +186,11 @@ export function CliLoginPage() {
       <h1>Authorize blaster CLI</h1>
       <p>
         Sign in with Twenty to connect the <code>blaster</code> command on this device. Your Twenty tokens are sent
-        only to the local loopback listener started by <code>blaster login</code> â€” never to a web server.
+        only to the local loopback listener started by <code>blaster login</code> —” never to a web server.
       </p>
       <div role="status" aria-live="polite">
-        {result.kind === "idle" && <div className="notice info">Preparing the local exchangeâ€¦</div>}
-        {result.kind === "posting" && <div className="notice info">Sending the session proof to the CLI (127.0.0.1)â€¦</div>}
+        {result.kind === "idle" && <div className="notice info">Preparing the local exchange—¦</div>}
+        {result.kind === "posting" && <div className="notice info">Sending the session proof to the CLI (127.0.0.1)—¦</div>}
         {result.kind === "ok" && (
           <div className="notice success">Authorized. You can close this window and return to your terminal.</div>
         )}

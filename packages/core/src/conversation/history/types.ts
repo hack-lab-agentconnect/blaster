@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Conversation history: the durable record of what was actually said.
  *
  * A Telnyx message id identifies one message, not a relationship. The stable

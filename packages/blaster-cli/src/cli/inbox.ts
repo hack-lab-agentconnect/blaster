@@ -1,4 +1,4 @@
-﻿/**
+/**
  * `blaster inbox list` and `blaster inbox show`.
  *
  * The read side of the conversation history, and the CLI's half of the parity

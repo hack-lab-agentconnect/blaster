@@ -1,4 +1,4 @@
-﻿import { ConvexReactClient } from "convex/react";
+import { ConvexReactClient } from "convex/react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { finishSignIn } from "../lib/auth/session";
@@ -26,7 +26,7 @@ export function CallbackPage() {
 
   return (
     <div className="card">
-      <h1>Finishing sign-inâ€¦</h1>
+      <h1>Finishing sign-in—¦</h1>
       {problem ? (
         <>
           <div className="notice error">{problem}</div>
@@ -37,14 +37,14 @@ export function CallbackPage() {
           </div>
         </>
       ) : (
-        <div className="notice info">Exchanging the Twenty authorization codeâ€¦</div>
+        <div className="notice info">Exchanging the Twenty authorization code—¦</div>
       )}
     </div>
   );
 }
 
 export function ConvexStatus() {
-  const [status, setStatus] = useState<string>("checkingâ€¦");
+  const [status, setStatus] = useState<string>("checking—¦");
   useEffect(() => {
     let cancelled = false;
     const url = import.meta.env.VITE_CONVEX_URL?.trim();

@@ -1,4 +1,4 @@
-﻿import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 /**
  * The webhook, through the real Hono app.

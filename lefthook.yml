@@ -23,6 +23,11 @@ pre-push:
       glob: "{config/env-vars.json,packages/**/*.ts,apps/**/*.ts,convex/**/*.ts}"
       run: pnpm run check:env
 
+    # Invisible in review, so it needs a gate: a double-encoded em dash is still valid
+    # UTF-8, and a BOM breaks a shebang.
+    encoding:
+      run: pnpm run check:encoding
+
     brand-no-emoji:
       run: pnpm run check:no-emoji
 

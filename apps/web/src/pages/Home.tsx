@@ -1,11 +1,10 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { beginSignIn, clearSession, fetchOperator, loadSession } from "../lib/auth/session";
+import { clearSession, fetchOperator, loadSession } from "../lib/auth/session";
 import { ConvexStatus } from "./callback";
 
 export function HomePage() {
   const [operator, setOperator] = useState<{ username: string | null } | null>(null);
-  const [starting, setStarting] = useState(false);
   const signedIn = loadSession() !== null;
 
   useEffect(() => {
@@ -26,42 +25,47 @@ export function HomePage() {
     window.location.reload();
   };
 
+  if (!signedIn) {
+    // The sign-in action lives on its own page, so there is one place that owns
+    // it and the landing page is only ever read.
+    return (
+      <div className="card">
+        <h1>Blaster</h1>
+        <p>
+          Operator sign-in for the Blaster messaging pipeline. Identity comes from Twenty itself, the same user
+          group that owns the workspace. Signing in here also authorizes the <code>blaster</code> CLI on this
+          device via <code>blaster login</code>.
+        </p>
+        <div className="row">
+          <Link className="button" to="/login">
+            Continue with Twenty
+          </Link>
+        </div>
+        <p>
+          <Link to="/cli">Authorize the CLI</Link> · <ConvexStatus />
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="card">
       <h1>Blaster</h1>
       <p>
-        Operator sign-in for the Blaster messaging pipeline. Identity comes from Twenty itself â€” the same user
-        group that owns the workspace. Signing in here also authorizes the <code>blaster</code> CLI on this
-        device via <code>blaster login</code>.
+        Signed in{operator?.username ? ` as ${operator.username}` : ""} through Twenty. This browser holds a live
+        session; closing the tab ends it.
       </p>
-      {signedIn ? (
-        <>
-          <div className="notice success">
-            Signed in{operator?.username ? ` as ${operator.username}` : ""} via Twenty.
-          </div>
-          <div className="row">
-            <button type="button" className="button secondary" onClick={signOut}>
-              Sign out
-            </button>
-          </div>
-        </>
-      ) : (
-        <div className="row">
-          <button
-            type="button"
-            className="button"
-            disabled={starting}
-            onClick={() => {
-              setStarting(true);
-              beginSignIn().catch(() => setStarting(false));
-            }}
-          >
-            {starting ? "Redirectingâ€¦" : "Sign in with Twenty"}
-          </button>
-        </div>
-      )}
+      <div className="notice success">Authenticated against Twenty.</div>
+      <div className="row">
+        <button type="button" className="button secondary" onClick={signOut}>
+          Sign out
+        </button>
+        <Link className="button secondary" to="/login">
+          Sign in as someone else
+        </Link>
+      </div>
       <p>
-        <Link to="/cli">Authorize the CLI</Link> Â· <ConvexStatus />
+        <Link to="/cli">Authorize the CLI</Link> · <ConvexStatus />
       </p>
     </div>
   );

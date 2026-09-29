@@ -1,4 +1,4 @@
-﻿import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server.js";
+import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server.js";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import {

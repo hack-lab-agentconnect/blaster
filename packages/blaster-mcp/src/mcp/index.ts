@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Blaster MCP server.
  *
  * Built on @modelcontextprotocol/server 2.x, the same generation the Rank MCP

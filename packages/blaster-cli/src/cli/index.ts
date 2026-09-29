@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Blaster CLI.
  *
  * Argument parsing is hand-rolled and the shape of a failure is deliberate:

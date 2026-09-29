@@ -1,4 +1,4 @@
-﻿/**
+/**
  * The breakdown reader, against the contract in ./types.ts.
  *
  * The reader is a function precisely so it can be tested with rows instead of a
