@@ -57,6 +57,13 @@ const EXEMPTIONS = [{ file: 'apps/docs/app/globals.css', line: /--font-mono\s*:/
 // fail its own rule, which is how a gate teaches people to route around it.
 const NAME_MENTION = /(^|[^\w-])(?:check:)?no-font-mono([^\w-]|$)/;
 
+// Machine-written files are not design decisions. The generated Twenty client
+// (packages/core/src/twenty/api/generated) is a verbatim print of the
+// workspace's own GraphQL schema, and that schema contains enum values such as
+// the country 'MONACO'. Nothing in these files can render, so the marker the
+// emitter stamps is what exempts them, not a path allowlist that would rot.
+const GENERATED_MARKER = /^\s*\/\/\s*@generated\b/m;
+
 // The Tailwind class that resolves to a mono stack, plus concrete mono faces
 // in inline styles. Case-insensitive so renamed/capitalized stacks still trip.
 const PATTERNS = [
@@ -94,6 +101,7 @@ function scanFile(absPath, violations) {
     return;
   }
   const rel = relative(root, absPath).replace(/\\/g, '/');
+  if (GENERATED_MARKER.test(text)) return;
   const exemption = EXEMPTIONS.find((e) => e.file === rel);
   text.split('\n').forEach((line, i) => {
     if (!regex.test(line)) return;

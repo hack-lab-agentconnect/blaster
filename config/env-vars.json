@@ -45,9 +45,17 @@
       "description": "Read-only Postgres connection used solely to verify a workspace login against core.\"user\". Requires SELECT on that table and nothing else."
     },
     {
+      "name": "CONVEX_URL",
+      "status": "active",
+      "consumedBy": ["apps/api/src/lib/convex/helpers/client.ts"],
+      "required": false,
+      "secret": false,
+      "description": "URL of the Convex deployment the API writes to. Required for the Telnyx webhook to store inbound messages; without it the webhook reports not-configured rather than pretending the message was saved. Every other route reads Twenty or Telnyx directly and does not need it."
+    },
+    {
       "name": "TELNYX_API_KEY",
       "status": "active",
-      "consumedBy": ["apps/api/src/index.ts", "packages/core/src/telnyx/messaging/helpers/client.ts"],
+      "consumedBy": ["apps/api/src/index.ts", "packages/core/src/telnyx/messaging/helpers/client.ts", "packages/core/src/telnyx/numbers/helpers/numbers.ts", "convex/phoneNumbers.ts"],
       "required": true,
       "secret": true,
       "description": "Telnyx API key. Sending and profile listing both fail without it."
@@ -107,6 +115,78 @@
       "required": false,
       "secret": false,
       "description": "Port the Hono server binds. Defaults to 4180."
+    },
+    {
+      "name": "CI",
+      "status": "active",
+      "consumedBy": ["packages/blaster-cli/src/cli/prompt.ts"],
+      "required": false,
+      "secret": false,
+      "description": "Set to true in automation. The CLI never opens interactive prompts when it is set, so scripted runs cannot hang waiting for input."
+    },
+    {
+      "name": "TWENTY_OAUTH_CLIENT_ID",
+      "status": "active",
+      "consumedBy": ["apps/api/src/lib/twenty/oauth/helpers/config.ts"],
+      "required": false,
+      "secret": false,
+      "description": "OAuth client id registered against the Twenty instance (RFC 7591). Required on the API host for the operator sign-in flow; the CLI and web app never hold it directly."
+    },
+    {
+      "name": "TWENTY_OAUTH_CLIENT_SECRET",
+      "status": "active",
+      "consumedBy": ["apps/api/src/lib/twenty/oauth/helpers/config.ts"],
+      "required": false,
+      "secret": true,
+      "description": "OAuth client secret for the confidential API-side client. Never leaves the server; the browser and CLI redeem through the API proxy instead."
+    },
+    {
+      "name": "TWENTY_OAUTH_REDIRECT_URI",
+      "status": "active",
+      "consumedBy": ["apps/api/src/lib/twenty/oauth/helpers/config.ts"],
+      "required": false,
+      "secret": false,
+      "description": "Exact redirect URI registered with Twenty, pointing at the web app /callback route. Must match on authorize and redeem calls."
+    },
+    {
+      "name": "TWENTY_OAUTH_SCOPE",
+      "status": "active",
+      "consumedBy": ["apps/api/src/lib/twenty/oauth/helpers/config.ts"],
+      "required": false,
+      "secret": false,
+      "description": "Space-separated OAuth scopes requested from Twenty. Defaults to 'api profile'."
+    },
+    {
+      "name": "TWENTY_BASIC_USER",
+      "status": "active",
+      "consumedBy": ["apps/api/src/lib/twenty/oauth/helpers/config.ts", "apps/api/src/lib/twenty/oauth/client.ts"],
+      "required": false,
+      "secret": false,
+      "description": "User half of the basic-auth gate in front of the Twenty instance. Required only when an auth-guard proxy fronts the deployment, and only together with TWENTY_BASIC_PASSWORD. The operator's browser gets a native prompt for it on /authorize; the API presents the same header for discovery, token, and introspection calls. The Bearer token alone is enough for /rest and /graphql, which a guard normally exempts."
+    },
+    {
+      "name": "TWENTY_BASIC_PASSWORD",
+      "status": "active",
+      "consumedBy": ["apps/api/src/lib/twenty/oauth/helpers/config.ts", "apps/api/src/lib/twenty/oauth/client.ts"],
+      "required": false,
+      "secret": true,
+      "description": "Password half of the auth-guard gate. Unset means no gate is declared, not a guard that rejects everything, so the two variables must be set together. Never leaves the server."
+    },
+    {
+      "name": "BLASTER_API_URL",
+      "status": "active",
+      "consumedBy": ["packages/blaster-cli/src/cli/login.ts"],
+      "required": false,
+      "secret": false,
+      "description": "Origin of the Blaster Hono API. The CLI validates and refreshes Twenty operator tokens through it. Defaults to http://localhost:4180."
+    },
+    {
+      "name": "BLASTER_WEB_URL",
+      "status": "active",
+      "consumedBy": ["packages/blaster-cli/src/cli/login.ts"],
+      "required": false,
+      "secret": false,
+      "description": "Origin of the Blaster web app. `blaster login` opens its /cli page there. Defaults to http://localhost:5173."
     }
   ]
 }

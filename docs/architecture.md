@@ -41,11 +41,26 @@ deployment exists, rather than failing closed on a missing backend.
 
 ```
 packages/core/src/
-  twenty/crm/         Twenty REST client, envelope unwrapping, keyset paging
-  telnyx/messaging/   Profile resolution and the Telnyx REST client
-  pipeline/breakdown/ The breakdown builder and the notification rules
-  platform/env/       The environment manifest reader
+  twenty/crm/            Twenty REST client, envelope unwrapping, keyset paging
+  twenty/phones/         agencyPhones mapping and Twenty/Convex sync planning
+  twenty/oauth/          Twenty OAuth2 (discovery, PKCE, token exchange/refresh, introspection)
+  twenty/api/            Session-bound GraphQL client (OAuth tokens with refresh);
+                         reads the generated client emitted by `pnpm twenty:client`
+  telnyx/messaging/      Profile resolution and the Telnyx REST client
+  telnyx/numbers/        Number search, purchase, and messaging-profile assignment
+  pipeline/breakdown/    The breakdown builder and the notification rules
+  pipeline/sequence/     Sequence drafts, eligibility, and enrollment cursors
+  conversation/classification/  Per-message states, Jev questions, reply gate
+  guidance/prompts/      Versioned reply guidance selected by resolution path
+  platform/env/          The environment manifest reader
 ```
+
+Twenty reads go through the `twenty/api` session client. The typed GraphQL
+client it binds is generated from the live workspace (`scripts/emit-twenty-client.mjs`,
+`pnpm twenty:client`), following the twenty-coach pattern: introspect the
+instance, emit `twenty/api/generated/`, expose it at the `@blaster/core/twenty/api`
+subpath. Until generation, transports keep working as before — generation swaps
+internals, not call sites.
 
 Every domain has an `index.ts` entrypoint, every `helpers/` has a barrel, and no
 helper imports its own domain barrel. Callers import the domain, never the
@@ -82,9 +97,15 @@ explicitly rather than assumed away:
   `{value,label}` depending on how it was written, so every read goes through
   `selectValue`.
 
-Record reads use REST because those routes are generated from the live schema
-and therefore serve the custom `agency*` objects. GraphQL is used only for
-workspace metadata.
+Record reads still use REST, and the reason is behavioural rather than a
+limitation of GraphQL. The custom `agency*` objects *are* in the core GraphQL
+schema: the generated client in `packages/core/src/twenty/api/generated/` is
+built from live introspection and contains `agencyPhones`, `agencyLeads`,
+`agencyCalls`, and the rest, with exact field types. REST stays for now because
+the reads depend on behaviour the GraphQL connections do not offer the same way
+— the keyset walk over `id`, and the several envelope shapes the endpoints have
+returned over time. Migrating them is a change of transport, not of
+capability, and the typed client is the destination when it happens.
 
 ## Messaging profiles
 
@@ -138,3 +159,8 @@ the countries with no messaging profile configured.
 | `check:no-font-mono` | forbids any fixed-width font from rendering |
 | `check:env` | every manifest variable is consumed by a real file |
 | `test` | the pure logic, with no credentials |
+
+`twenty:client:check` is separate from that list because it needs either
+instance credentials or a saved schema: it regenerates the Twenty client and
+fails when the committed tree is stale, so schema drift is caught on the next
+regeneration rather than silently at runtime.

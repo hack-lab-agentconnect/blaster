@@ -8,7 +8,7 @@ import {
   validateDraft,
   type SequenceDraft,
   type SequenceStepDraft,
-} from "../packages/core/src/pipeline/sequence/index.ts";
+} from "../packages/core/src/pipeline/sequence/index";
 
 /**
  * Sequence building and enrollment.
@@ -270,7 +270,22 @@ export const recordStep = internalMutation({
       return { status: "skipped" as const };
     }
 
-    const next = advance(args.steps, enrollment, Date.now());
+    // The Convex doc carries `_id` where core's Enrollment expects `id`,
+    // so map it explicitly rather than passing the doc straight through.
+    const next = advance(
+      args.steps,
+      {
+        id: enrollment._id,
+        sequenceId: enrollment.sequenceId,
+        recipientId: enrollment.recipientId,
+        cursor: enrollment.cursor,
+        status: enrollment.status,
+        enrolledAt: enrollment.enrolledAt,
+        nextDueAt: enrollment.nextDueAt ?? null,
+        lastSentAt: enrollment.lastSentAt ?? null,
+      },
+      Date.now(),
+    );
     await ctx.db.patch(args.enrollmentId, {
       cursor: next.cursor,
       status: next.status,

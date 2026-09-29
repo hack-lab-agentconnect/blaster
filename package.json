@@ -16,6 +16,8 @@
     "test:watch": "vitest",
     "convex:dev": "convex dev",
     "convex:deploy": "convex deploy",
+    "twenty:client": "node scripts/emit-twenty-client.mjs",
+    "twenty:client:check": "node scripts/emit-twenty-client.mjs --check",
     "check:secrets": "node scripts/check-no-secrets.mjs",
     "check:secrets:self-test": "node scripts/check-no-secrets.mjs --self-test",
     "check:naming": "node scripts/check-naming-conventions.mjs",
@@ -28,9 +30,14 @@
     "@modelcontextprotocol/client": "^2.1.0",
     "@types/node": "^22.10.2",
     "convex": "^1.46.0",
+    "graphql": "^17.0.2",
     "lefthook": "^1.7.18",
     "tsx": "^4.19.2",
+    "twenty-client-sdk": "^2.43.0",
     "typescript": "~5.6.2",
     "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "@convex-dev/agent": "^0.7.3"
   }
 }

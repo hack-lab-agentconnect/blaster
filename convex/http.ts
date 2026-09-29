@@ -43,6 +43,8 @@ http.route({
         { id: "messaging.send", title: "Send one SMS", mutating: true },
         { id: "messaging.profiles", title: "List messaging profiles", mutating: false },
         { id: "webhooks.telnyx", title: "Inbound Telnyx events", mutating: true },
+        { id: "conversations.list", title: "List SMS conversations", mutating: false },
+        { id: "conversations.read", title: "Read one conversation's messages", mutating: false },
         { id: "discovery.run", title: "Discover prospects via treg", mutating: true },
       ],
     }),

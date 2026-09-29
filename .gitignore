@@ -3,6 +3,10 @@ dist/
 *.tsbuildinfo
 .env
 .env.local
+# Operator session store written by `blaster login`: Twenty access and refresh
+# tokens in .blaster/sessions.json. The CLI's own comment claims this is never
+# committed, so the ignore rule is what makes that claim true.
+.blaster/
 .vercel/
 .DS_Store
 # Vendored third-party documentation, pulled in as reference material for the
@@ -13,3 +17,4 @@ docs/telnyx/
 docs/treg/
 docs/agentmail/
 docs/hono/
+docs/typesafe/

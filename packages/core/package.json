@@ -1,18 +1,23 @@
 {
-    "name":  "@blaster/core",
-    "version":  "0.1.0",
-    "private":  true,
-    "type":  "module",
-    "main":  "./src/index.ts",
-    "types":  "./src/index.ts",
-    "exports":  {
-                    ".":  "./src/index.ts"
-                },
-    "scripts":  {
-                    "typecheck":  "tsc --noEmit"
-                },
-    "dependencies":  {
-                         "zod":  "^3.24.1",
-                         "libphonenumber-js":  "^1.11.17"
-                     }
+    "name": "@blaster/core",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "main": "./src/index.ts",
+    "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./twenty/oauth": "./src/twenty/oauth/index.ts",
+    "./twenty/api": "./src/twenty/api/index.ts",
+    "./twenty/api/generated": "./src/twenty/api/generated/index.ts"
+  },
+    "scripts": {
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "libphonenumber-js": "^1.11.17",
+        "telnyx": "^7.24.0",
+        "xstate": "^5.33.2",
+        "zod": "^3.24.1"
+    }
 }

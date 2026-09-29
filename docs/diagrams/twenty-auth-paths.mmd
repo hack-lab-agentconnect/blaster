@@ -1,0 +1,35 @@
+%% Blaster - the wall in front of Twenty, and which credential opens what.
+%% A self-hosted Twenty is fronted by an auth-guard proxy that demands HTTP
+%% basic auth. It is the single most confusing part of the integration, because
+%% the bearer token and the basic credentials open different doors and neither
+%% opens all of them. This is the whole picture in one diagram.
+%% See docs/identity.md for the prose version and the failure table.
+
+flowchart TB
+    operator["Operator<br/>browser, or the CLI"]
+    api["Blaster API<br/>apps/api"]
+    core["@blaster/core<br/>twenty/oauth + twenty/api"]
+    guard{"Auth-guard<br/>HTTP basic auth"}
+    twenty["Twenty<br/>/authorize /oauth/*<br/>/rest /graphql"]
+    data[("Twenty records<br/>agencyPhones agencyLeads<br/>agencyCalls agencyProspects")]
+
+    operator -->|"1. redirect to /authorize<br/>no credential of ours"| guard
+    guard -->|"native user:pass prompt,<br/>once per browser"| twenty
+    operator -->|"2. POST code + PKCE verifier"| api
+    api -->|"3. Basic: POST /oauth/token"| guard
+    guard --> twenty
+    api -->|"returns access + refresh"| operator
+    operator -->|"4. Bearer: reads"| api
+    api -->|"Bearer TWENTY_API_KEY<br/>guard exempts this path"| twenty
+    twenty --> data
+
+    wall["The wall: Basic credentials answer for the guard.<br/>They are not a record credential, and the bearer key is not<br/>a credential for the guard. Both are needed on a guarded<br/>deployment, on different paths."]
+    bearer["TWENTY_API_KEY identifies the workspace, not the operator.<br/>Server-side only; never in the browser."]
+    refresh["An expired operator token is a 200 with UNAUTHENTICATED<br/>inside the GraphQL payload, not a 401. twenty/api reads the<br/>payload, refreshes once, and replays the same document."]
+
+    guard -.- wall
+    api -.- bearer
+    core -.- refresh
+
+    classDef wallBox fill:#fffbeb,stroke:#d97706,color:#451a03
+    class wall,bearer,refresh wallBox

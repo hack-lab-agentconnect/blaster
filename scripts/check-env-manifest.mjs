@@ -19,7 +19,7 @@ const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
 
 const SCAN_DIRS = ['packages', 'apps', 'convex', 'scripts', 'docs'];
 const SCAN_EXT = /\.(ts|mts|tsx|mjs|js|md|json)$/;
-const SKIP_DIRS = new Set(['node_modules', 'dist', '.git', 'out', '.source', 'build']);
+const SKIP_DIRS = new Set(['node_modules', 'dist', '.git', 'out', '.source', 'build', '_generated']);
 
 function walk(dir, files = []) {
   if (!existsSync(dir)) return files;

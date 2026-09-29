@@ -1,0 +1,79 @@
+:root {
+  color-scheme: light;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: #fafafa;
+  color: #111;
+}
+
+.shell {
+  max-width: 560px;
+  margin: 48px auto;
+  padding: 0 20px;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid #e5e5e5;
+  border-radius: 12px;
+  padding: 24px;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+a.button,
+button.button {
+  display: inline-block;
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 1px solid #111;
+  background: #111;
+  color: #fff;
+  text-decoration: none;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+a.button.secondary,
+button.button.secondary {
+  background: #fff;
+  color: #111;
+}
+
+.notice {
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-top: 12px;
+  font-size: 14px;
+}
+
+.notice.info {
+  background: #eef4ff;
+  border: 1px solid #c9dcff;
+}
+
+.notice.success {
+  background: #ecfdf3;
+  border: 1px solid #b8e6c5;
+}
+
+.notice.error {
+  background: #fef2f2;
+  border: 1px solid #f5c2c2;
+}
+
+code {
+  font-family: inherit;
+  font-size: 13px;
+  background: #f1f1f1;
+  padding: 1px 5px;
+  border-radius: 4px;
+}

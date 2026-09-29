@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Blaster MCP server.
  *
  * Built on @modelcontextprotocol/server 2.x, the same generation the Rank MCP
@@ -17,20 +17,33 @@ import { Server } from "@modelcontextprotocol/server";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { pathToFileURL } from "node:url";
 import {
+  BlasterApiError,
   DEFAULT_OPTIONS,
+  createBlasterApiClient,
+  loadSessionHome,
+  type BlasterApiClient,
   TwentyClient,
   buildBreakdown,
+  createNumberOrder,
   describeEnv,
   evaluateEligibility,
   evaluateNotifications,
+  fromAgencyPhoneRecord,
+  listAgencyPhones,
+  listOwnedNumbers,
   missingRequired,
   notificationStateKey,
+  planPhoneSync,
   resolveMessagingProfile,
+  searchAvailableNumbers,
   sendMessage,
   summarise,
   uncoveredCountries,
+  upsertAgencyPhone,
   validateDraft,
   type Breakdown,
+  type NumberFeature,
+  type NumberType,
   type Recipient,
   type SequenceDraft,
   type TwentyRecord,
@@ -121,6 +134,65 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   {
+    name: "blaster_search_numbers",
+    description:
+      "Search Telnyx inventory for available phone numbers by country, type, features, and pattern. Use this before purchasing so the agent buys an exact available number.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        countryCode: { type: "string", description: "ISO alpha-2 country, for example US." },
+        numberType: { type: "string", description: "local, toll_free, mobile, national, or shared_cost." },
+        features: { type: "string", description: "Comma-separated, for example sms,voice." },
+        limit: { type: "number", description: "Max results to return." },
+        contains: { type: "string", description: "Digits the number must contain." },
+        startsWith: { type: "string", description: "Digits the number must start with." },
+        endsWith: { type: "string", description: "Digits the number must end with." },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "blaster_purchase_number",
+    description:
+      "Purchase exact Telnyx phone numbers (POST /number_orders) and mirror them into Twenty agencyPhones. Requires TELNYX_API_KEY; Twenty sync is skipped when Twenty is unconfigured.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        phoneNumbers: { type: "array", description: "E.164 numbers to purchase, exactly as returned by search." },
+        messagingProfileId: { type: "string", description: "Messaging profile to bind on the order." },
+        customerReference: { type: "string", description: "Customer reference stored on the order." },
+        syncToTwenty: { type: "boolean", description: "Mirror into agencyPhones. Defaults to true." },
+      },
+      required: ["phoneNumbers"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "blaster_list_numbers",
+    description:
+      "List owned Telnyx numbers with messaging bindings, or phone rows from a source: telnyx (the account), twenty (agencyPhones), which is the default.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        source: { type: "string", description: "telnyx or twenty. Defaults to twenty." },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "blaster_sync_phones",
+    description:
+      "Sync phone rows between Convex and Twenty, keyed on the E.164 number. convex-to-twenty upserts the given Convex rows into agencyPhones; twenty-to-convex returns the Twenty rows to store via the Convex importTwentyPhones mutation.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        direction: { type: "string", description: "convex-to-twenty or twenty-to-convex." },
+        phones: { type: "array", description: "Convex phone rows, for convex-to-twenty." },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: "blaster_validate_sequence",
     description:
       "Check a message sequence draft and return every problem at once, plus a summary of its steps. Use this before creating a sequence.",
@@ -152,6 +224,35 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "blaster_list_conversations",
+    description:
+      "List SMS conversations, newest activity first. Each row is one thread: the peer number, the Blaster number we sent from, message count, and a preview of the newest message. Filter by sending number with `number`, or by campaign with `campaign`, which resolves the campaign per thread and is therefore slower.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "Page size, max 200. Defaults to 50." },
+        number: { type: "string", description: "Only threads for this sending number, in E.164." },
+        campaign: { type: "string", description: "Only threads in this campaign id." },
+        withCampaign: { type: "boolean", description: "Resolve the campaign on every row." },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "blaster_get_messages",
+    description:
+      "Read every message in one conversation, oldest first, with direction, body, delivery status and timestamps. Use blaster_list_conversations to obtain a conversation id.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        conversationId: { type: "string", description: "The conversation id from blaster_list_conversations." },
+        limit: { type: "number", description: "Maximum messages, max 500." },
+      },
+      required: ["conversationId"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 function twenty(): TwentyClient {
@@ -165,6 +266,40 @@ function twenty(): TwentyClient {
 interface ToolResult {
   text: string;
   structured?: unknown;
+}
+
+/**
+ * The Blaster API client, authenticated as the operator.
+ *
+ * The inbox routes require a live operator token, and the MCP server is a local
+ * stdio process for the same person who ran `blaster login`, so it reads that
+ * session rather than holding a credential of its own. It goes through the same
+ * `createBlasterApiClient` as the CLI, which is what makes the two surfaces
+ * return identical payloads rather than merely similar ones.
+ */
+function blasterApi(): BlasterApiClient {
+  const home = loadSessionHome(process.cwd());
+  const apiUrl = home.config.apiUrl ?? Object.keys(home.sessions)[0] ?? null;
+  if (!apiUrl) {
+    throw new Error(
+      'No signed-in Blaster API. Run "blaster login" first, or set an apiUrl in .blaster/config.json.',
+    );
+  }
+  const session = home.sessions[apiUrl];
+  if (!session) throw new Error(`No session for ${apiUrl}. Run "blaster login" first.`);
+  return createBlasterApiClient({ baseUrl: apiUrl, accessToken: session.accessToken });
+}
+
+/** Provider and auth failures as one readable line, never a raw stack. */
+function describeApiError(error: unknown): string {
+  if (error instanceof BlasterApiError) {
+    if (error.kind === "unauthorized") return "The operator token is not accepted. Run \"blaster login\" again.";
+    if (error.kind === "unavailable") {
+      return `The Blaster API cannot serve this right now (${error.status}): ${error.message}`;
+    }
+    return `${error.message} (${error.status})`;
+  }
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function runTool(name: string, args: Record<string, unknown>): Promise<ToolResult> {
@@ -261,6 +396,123 @@ async function runTool(name: string, args: Record<string, unknown>): Promise<Too
       };
     }
 
+    case "blaster_search_numbers": {
+      const apiKey = process.env.TELNYX_API_KEY;
+      if (!apiKey) throw new Error("configuration: TELNYX_API_KEY not set");
+      const featuresRaw = typeof args.features === "string" ? args.features : undefined;
+      const numbers = await searchAvailableNumbers(apiKey, {
+        countryCode: typeof args.countryCode === "string" ? args.countryCode : undefined,
+        numberType: typeof args.numberType === "string" ? (args.numberType as NumberType) : undefined,
+        features: featuresRaw
+          ? (featuresRaw.split(",").map((f) => f.trim()).filter(Boolean) as NumberFeature[])
+          : undefined,
+        limit: typeof args.limit === "number" ? args.limit : undefined,
+        contains: typeof args.contains === "string" ? args.contains : undefined,
+        startsWith: typeof args.startsWith === "string" ? args.startsWith : undefined,
+        endsWith: typeof args.endsWith === "string" ? args.endsWith : undefined,
+      });
+      return {
+        text: `${numbers.length} available number(s).`,
+        structured: { count: numbers.length, numbers },
+      };
+    }
+
+    case "blaster_purchase_number": {
+      const apiKey = process.env.TELNYX_API_KEY;
+      if (!apiKey) throw new Error("configuration: TELNYX_API_KEY not set");
+      const phoneNumbers = Array.isArray(args.phoneNumbers)
+        ? (args.phoneNumbers as unknown[]).map(String)
+        : [];
+      if (phoneNumbers.length === 0) throw new Error("validation: phoneNumbers is required");
+      const order = await createNumberOrder(apiKey, {
+        phoneNumbers,
+        messagingProfileId:
+          typeof args.messagingProfileId === "string" ? args.messagingProfileId : undefined,
+        customerReference:
+          typeof args.customerReference === "string" ? args.customerReference : undefined,
+      });
+      let synced = 0;
+      if (
+        args.syncToTwenty !== false &&
+        process.env.TWENTY_BASE_URL &&
+        process.env.TWENTY_API_KEY
+      ) {
+        const client = twenty();
+        for (const purchased of order.phoneNumbers) {
+          await upsertAgencyPhone(client, {
+            phoneNumber: purchased.phoneNumber,
+            messagingProfileId: order.messagingProfileId,
+            countryCode: purchased.countryCode,
+            numberType: purchased.numberType,
+            telnyxNumberId: purchased.id,
+            orderId: order.id,
+            status: purchased.status,
+          });
+          synced += 1;
+        }
+      }
+      return {
+        text: `Order ${order.id ?? "unknown"} (${order.status ?? "unknown"}): ${order.phoneNumbers.length} number(s), ${synced} synced to Twenty.`,
+        structured: { order, syncedToTwenty: synced },
+      };
+    }
+
+    case "blaster_list_numbers": {
+      const source = typeof args.source === "string" ? args.source : "twenty";
+      if (source === "telnyx") {
+        const apiKey = process.env.TELNYX_API_KEY;
+        if (!apiKey) throw new Error("configuration: TELNYX_API_KEY not set");
+        const numbers = await listOwnedNumbers(apiKey);
+        return {
+          text: `${numbers.length} owned number(s).`,
+          structured: { source, count: numbers.length, numbers },
+        };
+      }
+      const client = twenty();
+      const phones = (await listAgencyPhones(client)).map(fromAgencyPhoneRecord);
+      return {
+        text: `${phones.length} phone(s) in agencyPhones.`,
+        structured: { source, count: phones.length, phones },
+      };
+    }
+
+    case "blaster_sync_phones": {
+      const direction = typeof args.direction === "string" ? args.direction : "convex-to-twenty";
+      const client = twenty();
+      const twentyPhones = (await listAgencyPhones(client)).map(fromAgencyPhoneRecord);
+      if (direction === "twenty-to-convex") {
+        return {
+          text: `${twentyPhones.length} Twenty phone(s) to store in Convex.`,
+          structured: { direction, count: twentyPhones.length, phones: twentyPhones },
+        };
+      }
+      const convexPhones = (Array.isArray(args.phones) ? args.phones : []).map((row) => {
+        const record = row as Record<string, unknown>;
+        return {
+          phoneNumber: String(record.phoneNumber ?? record.phone_number ?? ""),
+          messagingProfileId: (record.messagingProfileId ?? record.messaging_profile_id ?? null) as string | null,
+          countryCode: (record.countryCode ?? record.country_code ?? null) as string | null,
+          numberType: (record.numberType ?? record.number_type ?? null) as string | null,
+          telnyxNumberId: (record.telnyxNumberId ?? record.telnyx_number_id ?? null) as string | null,
+          orderId: (record.orderId ?? record.order_id ?? null) as string | null,
+          status: (record.status ?? null) as string | null,
+        };
+      });
+      const plan = planPhoneSync(
+        convexPhones.filter((row) => row.phoneNumber),
+        twentyPhones,
+      );
+      let upserted = 0;
+      for (const row of plan.toCreateInTwenty) {
+        await upsertAgencyPhone(client, row);
+        upserted += 1;
+      }
+      return {
+        text: `${upserted} created in Twenty, ${plan.toStoreInConvex.length} to store in Convex.`,
+        structured: { direction, ...plan, upserted },
+      };
+    }
+
     case "blaster_validate_sequence": {
       const raw = args.draft as Partial<SequenceDraft> | undefined;
       if (!raw) throw new Error("validation: draft is required");
@@ -312,6 +564,62 @@ async function runTool(name: string, args: Record<string, unknown>): Promise<Too
           (Object.keys(skipReasons).length > 0 ? ` Skipped: ${JSON.stringify(skipReasons)}.` : ""),
         structured: { total: rows.length, ready: ready.length, skipped: skipped.length, skipReasons, rows },
       };
+    }
+
+    case "blaster_list_conversations": {
+      try {
+        const client = blasterApi();
+        const rows = await client.listConversations({
+          limit: typeof args.limit === "number" ? args.limit : undefined,
+          number: typeof args.number === "string" ? args.number : undefined,
+          campaign: typeof args.campaign === "string" ? args.campaign : undefined,
+          withCampaign: typeof args.withCampaign === "boolean" ? args.withCampaign : undefined,
+        });
+        return {
+          text:
+            rows.length === 0
+              ? "No conversations yet."
+              : rows
+                  .map(
+                    (row) =>
+                      `${row.phoneNumber} via ${row.blasterNumber}: ${row.messageCount} message(s), ` +
+                      `last ${row.latestDirection ?? "unknown"} at ${new Date(row.latestMessageAt).toISOString()}` +
+                      (row.latestPreview ? ` - ${row.latestPreview}` : ""),
+                  )
+                  .join("\n"),
+          // The same rows the CLI and the API return, so an agent and a human
+          // are reading identical data rather than two renderings of it.
+          structured: { count: rows.length, conversations: rows },
+        };
+      } catch (error) {
+        return { text: describeApiError(error) };
+      }
+    }
+
+    case "blaster_get_messages": {
+      const conversationId = typeof args.conversationId === "string" ? args.conversationId : "";
+      if (!conversationId) return { text: "conversationId is required." };
+      try {
+        const client = blasterApi();
+        const rows = await client.conversationMessages(
+          conversationId,
+          typeof args.limit === "number" ? args.limit : undefined,
+        );
+        return {
+          text:
+            rows.length === 0
+              ? "That conversation has no messages."
+              : rows
+                  .map(
+                    (row) =>
+                      `${new Date(row.sentAt).toISOString()} [${row.direction}/${row.status}] ${row.from} -> ${row.to}: ${row.body}`,
+                  )
+                  .join("\n"),
+          structured: { conversationId, count: rows.length, messages: rows },
+        };
+      } catch (error) {
+        return { text: describeApiError(error) };
+      }
     }
 
     default:

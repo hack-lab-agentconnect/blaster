@@ -8,6 +8,7 @@ naming gates:
 | File | What it covers |
 | --- | --- |
 | [architecture.md](architecture.md) | How the Hono and Convex runtimes split, the Twenty sharp edges, and the messaging profile rules |
+| [identity.md](identity.md) | Signing in with Twenty, the auth-guard wall, and which credential opens which path |
 | [naming-conventions.md](naming-conventions.md) | The required `{library}/{domainname}/helpers` directory structure |
 
 **Vendored** documentation is third-party reference material, pulled in for the

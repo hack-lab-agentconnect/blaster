@@ -1,8 +1,8 @@
 {
+  // `rootDir` is dropped deliberately. This project is noEmit, so rootDir serves
+  // no purpose, and it fights the workspace layout: @blaster/core and the
+  // Convex generated api are TypeScript source outside apps/api/src, which TS
+  // reports as TS6059 rather than resolving.
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": {
-    "rootDir": "src",
-    "types": ["node"]
-  },
   "include": ["src"]
 }
