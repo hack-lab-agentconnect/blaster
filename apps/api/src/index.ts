@@ -686,7 +686,7 @@ async function ownedSources(): Promise<OwnershipSources> {
  *      attacker-controlled, so it is a claim to be checked, not an answer.
  *   3. Store it, deduplicated on the Telnyx event id.
  *   4. Acknowledge only now. Telnyx needs 2xx inside two seconds and retries
- *      three times, so a non-2xx is how a transient failure earns a retry —â€
+ *      three times, so a non-2xx is how a transient failure earns a retry,
  *      and acknowledging an event we failed to store loses it permanently.
  */
 app.post("/api/webhooks/telnyx", async (c) => {

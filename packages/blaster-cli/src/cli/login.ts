@@ -47,7 +47,17 @@ export const WHOAMI_USAGE = "Usage: blaster whoami [--api-url <url>] [--json]";
 
 const DEFAULT_WEB_URL = "http://localhost:5173";
 const DEFAULT_API_URL = "http://localhost:4180";
-const EXCHANGE_TIMEOUT_MS = 120_000;
+/**
+ * How long the loopback exchange waits before giving up.
+ *
+ * Thirty seconds is the window the operator gets to finish signing in, and it is
+ * also how long a failed run blocks a terminal. The loopback stops serving the
+ * moment the exchange lands, so this only bounds the case where the browser never
+ * arrives — a closed tab, a sign-in that errors, or a web app that is not the one
+ * on the port. Lengthening it would not make sign-in more reliable, only slower
+ * to report as failed.
+ */
+const EXCHANGE_TIMEOUT_MS = 30_000;
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_TOKEN_LENGTH = 16_384;
 
