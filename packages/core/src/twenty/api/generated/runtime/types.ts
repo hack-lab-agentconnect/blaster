@@ -2,7 +2,6 @@
 // Source: introspection of the configured Twenty workspace. Refresh with the
 // same command whenever custom objects or fields change.
 // @ts-nocheck
-
 export interface ExecutionResult<TData = { [key: string]: any }> {
     errors?: Array<Error>
     data?: TData | null

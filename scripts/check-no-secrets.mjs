@@ -87,6 +87,21 @@ const PROVIDER_PATTERNS = [
   },
 ];
 
+// Values that are fixed by a specification, so they carry no entropy and cannot
+// be leaked. These are vocabulary, not placeholders: a placeholder is something
+// a human chose to stand in for a real value, whereas these are the literal
+// words the protocol requires on the wire. The allowlist is deliberately short
+// and each entry names the rule that fixes it, so adding one is a decision
+// rather than a reflex.
+const PROTOCOL_CONSTANTS = new Set([
+  // RFC 7591 dynamic client registration.
+  "client_secret_post",
+  "client_secret_basic",
+  "authorization_code",
+  "refresh_token",
+  "urn:ietf:params:oauth:grant-type:device_code",
+]);
+
 // A name that makes the value on the right a credential.
 const SECRET_NAME = String.raw`(?:api[_-]?key|apikey|secret|pass(?:word|wd)?|token|private[_-]?key|client[_-]?secret|webhook[_-]?token)`;
 const SECRET_ASSIGNMENT = new RegExp(
@@ -144,6 +159,7 @@ function scanText(relPath, text) {
   }
   for (const match of text.matchAll(SECRET_ASSIGNMENT)) {
     const value = match[2] ?? "";
+    if (PROTOCOL_CONSTANTS.has(value.trim())) continue;
     if (PLACEHOLDER.test(value.trim())) continue;
     found.push({ relPath, line: lineOf(text, match.index ?? 0), id: "secret-assignment", match: value });
   }

@@ -25,8 +25,11 @@ describe("basicAuthHeader", () => {
   });
 
   test("handles non-ascii credentials", () => {
-    expect(basicAuthHeader({ user: "twenty", password: "pässwörd" })).toBe(
-      `Basic ${Buffer.from("twenty:pässwörd", "utf8").toString("base64")}`,
+    // The value is an obvious placeholder on purpose: the secret gate rejects a
+    // credential-looking name assigned a plausible literal, and this is a test
+    // fixture proving UTF-8 encoding, not a secret.
+    expect(basicAuthHeader({ user: "twenty", password: "not-a-real-pässword" })).toBe(
+      `Basic ${Buffer.from("twenty:not-a-real-pässword", "utf8").toString("base64")}`,
     );
   });
 });
