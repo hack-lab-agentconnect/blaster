@@ -336,6 +336,26 @@ async function readJson(response: Response): Promise<Record<string, unknown>> {
 }
 
 /**
+ * What to say when the API could not be reached at all.
+ *
+ * Every token path goes through the API, so this is the difference between
+ * "start the thing" and staring at a stack trace. The underlying cause is kept
+ * in the message so a proxy or DNS problem is still diagnosable.
+ */
+function unreachableApi(apiUrl: string, error: unknown): string {
+  const cause = error as { cause?: { code?: string } } | undefined;
+  const code = cause?.cause?.code;
+  if (code === "ECONNREFUSED") {
+    return `No Blaster API is listening on ${apiUrl}. Start it with "pnpm dev", or pass --api-url.`;
+  }
+  if (code === "ENOTFOUND" || code === "EAI_AGAIN") {
+    return `${apiUrl} could not be resolved. Check --api-url and your network.`;
+  }
+  const detail = error instanceof Error ? error.message : String(error);
+  return `Could not reach the Blaster API at ${apiUrl} (${detail}). Start it with "pnpm dev", or pass --api-url.`;
+}
+
+/**
  * Validate an access token via the API, which introspects against Twenty.
  * Success proves the token is live and carries the operator's identity.
  * The token itself never appears in any message.
@@ -350,7 +370,10 @@ export async function validateSessionToken(apiUrl: string, accessToken: string):
       headers: { Authorization: `Bearer ${accessToken}` },
     });
   } catch (error) {
-    return { ok: false, kind: "transport", message: error instanceof Error ? error.message : String(error) };
+    // A connect failure is almost always "the API is not running", which is the
+    // first thing an operator hits. Node's own message for that is "fetch
+    // failed", which names nothing they can act on.
+    return { ok: false, kind: "transport", message: unreachableApi(apiUrl, error) };
   }
   if (response.status === 401) {
     return { ok: false, kind: "auth", message: "The API rejected the session token" };

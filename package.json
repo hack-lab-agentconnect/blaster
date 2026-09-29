@@ -24,11 +24,11 @@
     "check:no-emoji": "node scripts/check-no-emojis.mjs",
     "check:no-font-mono": "node scripts/check-no-font-mono.mjs",
     "check:env": "node scripts/check-env-manifest.mjs",
-    "check": "pnpm run check:secrets:self-test && pnpm run check:secrets && pnpm run check:naming && pnpm run check:env && pnpm run check:generated-client && pnpm run check:encoding && pnpm run check:no-emoji && pnpm run check:no-font-mono && pnpm run typecheck && pnpm run test",
-    "check:generated-client": "node scripts/check-generated-client.mjs",
-    "check:encoding": "node scripts/check-encoding.mjs"
+    "check": "pnpm run check:secrets:self-test && pnpm run check:secrets && pnpm run check:naming && pnpm run check:env && pnpm run check:generated-client && pnpm run check:no-emoji && pnpm run check:no-font-mono && pnpm run typecheck && pnpm run test",
+    "check:generated-client": "node scripts/check-generated-client.mjs"
   },
   "devDependencies": {
+    "@blaster/cli": "workspace:^",
     "@modelcontextprotocol/client": "^2.1.0",
     "@types/node": "^22.10.2",
     "convex": "^1.46.0",

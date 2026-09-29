@@ -215,3 +215,46 @@ export function uncoveredCountries(env: MessagingProfileEnv, extra?: CountryProf
   const covered = new Set(configuredCountries(env, extra));
   return TARGET_COUNTRIES.filter((country) => !covered.has(country));
 }
+
+/**
+ * The profile bound to one of our own numbers, from the agency phone records.
+ *
+ * This is the lookup that makes a global `TELNYX_MESSAGING_PROFILE_ID`
+ * unnecessary. A workspace that owns several numbers, each bought or assigned
+ * against a different registration, cannot be described by one environment
+ * variable: the profile belongs to the number, and the number's own record is
+ * where that fact already lives. Reading it from `agencyPhones` first is also
+ * why the profile travels with the number when a different surface reads the
+ * same record, rather than being rediscovered per call.
+ *
+ * Returns null rather than falling back, so the caller can decide whether the
+ * country rules should run. Numbers are compared in E.164 because the record
+ * and the caller's `from` are rarely formatted the same way.
+ */
+export function profileBoundToNumber(
+  rows: ReadonlyArray<{ phoneNumber?: string | null; messagingProfileId?: string | null }>,
+  fromNumber: string | null | undefined,
+): { profileId: string; phoneNumber: string } | null {
+  const wanted = normalisePhone(fromNumber ?? "");
+  if (!wanted) return null;
+  for (const row of rows) {
+    if (normalisePhone(row.phoneNumber ?? "") !== wanted) continue;
+    const profileId = (row.messagingProfileId ?? "").trim();
+    // A record with no profile is a real answer: this number is not registered
+    // yet, which is a different problem from "the workspace has no profiles".
+    if (profileId === "") return null;
+    return { profileId, phoneNumber: wanted };
+  }
+  return null;
+}
+
+/** E.164 comparison key, tolerant of the formatting a number arrives in. */
+function normalisePhone(value: string): string {
+  const trimmed = value.trim();
+  if (/^\+[1-9]\d{6,14}$/.test(trimmed)) return trimmed;
+  try {
+    return parsePhoneNumberFromString(trimmed, { defaultCountry: "US" })?.number ?? trimmed;
+  } catch {
+    return trimmed;
+  }
+}

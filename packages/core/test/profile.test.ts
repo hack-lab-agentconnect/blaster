@@ -3,6 +3,7 @@ import {
   PROFILES,
   configuredCountries,
   normaliseCountry,
+  profileBoundToNumber,
   resolveMessagingProfile,
   uncoveredCountries,
 } from "../src/telnyx/messaging/helpers/profile.ts";
@@ -141,5 +142,70 @@ describe("coverage reporting", () => {
 
   test("uncovered countries are the ones with no profile", () => {
     expect(uncoveredCountries({ [PROFILES.default]: "d", [PROFILES.us]: "u" })).toEqual(["GB", "IE"]);
+  });
+});
+
+/**
+ * The profile belongs to the number, not to the environment.
+ *
+ * A workspace that owns several numbers has one registration per number, so a
+ * single global variable either lies about the rest or forces every number onto
+ * the same profile. These cases are the difference between "we read the
+ * workspace" and "we happen to be configured for one number".
+ */
+describe("profileBoundToNumber", () => {
+  const ROWS = [
+    { phoneNumber: "+12725550143", messagingProfileId: "prof-us-1" },
+    { phoneNumber: "+353871234567", messagingProfileId: "prof-ie-1" },
+    { phoneNumber: "+442079460958", messagingProfileId: "" },
+  ];
+
+  test("a record with a profile wins, with no environment involved", () => {
+    expect(profileBoundToNumber(ROWS, "+12725550143")).toEqual({
+      profileId: "prof-us-1",
+      phoneNumber: "+12725550143",
+    });
+    expect(profileBoundToNumber(ROWS, "+353871234567")?.profileId).toBe("prof-ie-1");
+  });
+
+  test("two numbers get their own profiles, not one shared one", () => {
+    expect(profileBoundToNumber(ROWS, "+12725550143")?.profileId).not.toBe(
+      profileBoundToNumber(ROWS, "+353871234567")?.profileId,
+    );
+  });
+
+  test("matching survives the formatting a caller supplies", () => {
+    expect(profileBoundToNumber(ROWS, "1 (272) 555-0143")?.profileId).toBe("prof-us-1");
+    expect(profileBoundToNumber(ROWS, "+353 87 123 4567")?.profileId).toBe("prof-ie-1");
+  });
+
+  test("a record with no profile is a real answer, not a miss", () => {
+    // This number is not registered yet, which the operator needs to see. The
+    // country rules and the global variable may still cover it, so this returns
+    // null and lets resolveMessagingProfile decide.
+    expect(profileBoundToNumber(ROWS, "+442079460958")).toBeNull();
+  });
+
+  test("a number nobody recorded has no bound profile", () => {
+    expect(profileBoundToNumber(ROWS, "+15555550100")).toBeNull();
+    expect(profileBoundToNumber([], "+12725550143")).toBeNull();
+    expect(profileBoundToNumber(ROWS, "")).toBeNull();
+    expect(profileBoundToNumber(ROWS, null)).toBeNull();
+  });
+
+  test("the bound profile then beats every environment variable", () => {
+    const resolution = resolveMessagingProfile(
+      { TELNYX_MESSAGING_PROFILE_ID: "env-default" },
+      { to: "+353871234567", numberProfileId: profileBoundToNumber(ROWS, "+12725550143")?.profileId },
+    );
+    expect(resolution.reason).toBe("bound-to-number");
+    expect(resolution.profileId).toBe("prof-us-1");
+  });
+
+  test("with no record, the environment still resolves the send", () => {
+    const resolution = resolveMessagingProfile({ TELNYX_MESSAGING_PROFILE_ID: "env-default" }, {
+      to: "+353871234567",
+    });
+    expect(resolution.profileId).toBe("env-default");
   });
 });

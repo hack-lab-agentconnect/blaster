@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "bin": {
-    "blaster": "./src/cli/index.ts"
+    "blaster": "./bin/blaster.mjs"
   },
   "scripts": {
     "start": "tsx src/cli/index.ts",
@@ -13,9 +13,8 @@
   "dependencies": {
     "@blaster/core": "workspace:*",
     "@clack/prompts": "^1.8.1",
-    "convex": "^1.46.0"
-  },
-  "devDependencies": {
+    "convex": "^1.46.0",
     "tsx": "^4.19.2"
-  }
+  },
+  "devDependencies": {}
 }

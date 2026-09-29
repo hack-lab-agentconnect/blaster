@@ -29,6 +29,7 @@ import {
   missingRequired,
   normaliseCountry,
   planPhoneSync,
+  profileBoundToNumber,
   resolveMessagingProfile,
   searchAvailableNumbers,
   stepText,
@@ -90,6 +91,26 @@ function fail(
 
 function twentyClient(): TwentyClient {
   return new TwentyClient();
+}
+
+/**
+ * The `agencyPhones` records, or nothing when Twenty is not configured.
+ *
+ * A send must not fail because the profile lookup could not run, so this
+ * returns an empty list rather than throwing: the country rules and the global
+ * variable still apply, and the reason the bound profile was unavailable is
+ * visible in the response's `resolution`.
+ */
+async function agencyPhonesForSending(): Promise<
+  Array<{ phoneNumber?: string | null; messagingProfileId?: string | null }>
+> {
+  if (!process.env.TWENTY_BASE_URL || !process.env.TWENTY_API_KEY) return [];
+  try {
+    const rows = await listAgencyPhones(twentyClient());
+    return rows.map(fromAgencyPhoneRecord);
+  } catch {
+    return [];
+  }
 }
 
 app.get("/health", (c) =>
@@ -251,21 +272,29 @@ app.post("/api/messages/send", async (c) => {
   const apiKey = process.env.TELNYX_API_KEY;
   if (!apiKey) return c.json({ error: "TELNYX_API_KEY is not configured" }, 500);
 
+  // `from` is required by Telnyx. Without a number we cannot guess one, so the
+  // caller has to say which sending number to use. It is resolved first because
+  // the profile that follows is bound to that number, not to the recipient.
+  if (!body.from) {
+    return c.json({ error: "from is required: Blaster will not guess a sending number" }, 400);
+  }
+
+  // A number's own record decides its profile. The workspace's
+  // `agencyPhones.messagingProfileId` is the source of truth, because a workspace
+  // with several numbers cannot be described by one environment variable:
+  // each number is bought or assigned against its own registration. The
+  // country rules and the global variable are fallbacks for a number nobody has
+  // recorded a profile for.
+  const bound = profileBoundToNumber(await agencyPhonesForSending(), body.from);
   const resolution = resolveMessagingProfile(process.env, {
     to: body.to,
-    numberProfileId: body.numberProfileId,
+    numberProfileId: bound?.profileId ?? body.numberProfileId,
   });
   if (!resolution.profileId) {
     return c.json(
       { error: "No messaging profile is configured", resolution },
       500,
     );
-  }
-
-  // `from` is required by Telnyx. Without a number we cannot guess one, so the
-  // caller has to say which sending number to use.
-  if (!body.from) {
-    return c.json({ error: "from is required: Blaster will not guess a sending number" }, 400);
   }
 
   try {
@@ -649,7 +678,7 @@ async function ownedSources(): Promise<OwnershipSources> {
  *      attacker-controlled, so it is a claim to be checked, not an answer.
  *   3. Store it, deduplicated on the Telnyx event id.
  *   4. Acknowledge only now. Telnyx needs 2xx inside two seconds and retries
- *      three times, so a non-2xx is how a transient failure earns a retry —”
+ *      three times, so a non-2xx is how a transient failure earns a retry —â€
  *      and acknowledging an event we failed to store loses it permanently.
  */
 app.post("/api/webhooks/telnyx", async (c) => {

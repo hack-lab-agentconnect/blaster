@@ -64,9 +64,9 @@
       "name": "TELNYX_MESSAGING_PROFILE_ID",
       "status": "active",
       "consumedBy": ["packages/core/src/telnyx/messaging/helpers/profile.ts"],
-      "required": true,
+      "required": false,
       "secret": false,
-      "description": "Default messaging profile, used when a recipient country has no more specific profile and when a sending number has no profile bound to it."
+      "description": "Catch-all profile for a number nobody has recorded one for. A workspace with several numbers cannot be described by one variable, so this is the fallback rather than the answer: the sending number's own agencyPhones.messagingProfileId decides its profile, and this is only consulted when that record has none. Set it only for a number you do not manage in Twenty."
     },
     {
       "name": "TELNYX_MESSAGING_PROFILE_US",
