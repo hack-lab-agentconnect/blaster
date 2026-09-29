@@ -42,7 +42,7 @@ export function HomePage() {
           </Link>
         </div>
         <p>
-          <Link to="/cli">Authorize the CLI</Link> · <ConvexStatus />
+          <Link to="/login">Authorize the CLI</Link> · <ConvexStatus />
         </p>
       </div>
     );
@@ -65,7 +65,7 @@ export function HomePage() {
         </Link>
       </div>
       <p>
-        <Link to="/cli">Authorize the CLI</Link> · <ConvexStatus />
+        <Link to="/login">Authorize the CLI</Link> · <ConvexStatus />
       </p>
     </div>
   );

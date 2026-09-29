@@ -83,11 +83,16 @@ export function validateHttpUrl(value: string | undefined): string | undefined {
 }
 
 /**
- * Build the web app URL the CLI opens: /cli carrying this run's
+ * Build the web app URL the CLI opens: /login carrying this run's
  * state/challenge and the loopback exchange URL the browser posts back to.
+ *
+ * `/login` is the app's only sign-in page, and it handles the handoff when those
+ * parameters are present. There is deliberately no CLI-specific route: Twenty's
+ * registered redirect URI already points this app at `/callback`, so a second
+ * page for the same flow would only be another copy to keep in step.
  */
 export function buildAuthorizeUrl(webUrl: string, state: string, challenge: string, exchangeUrl: string): string {
-  const url = new URL("/cli", webUrl);
+  const url = new URL("/login", webUrl);
   url.searchParams.set("state", state);
   url.searchParams.set("code_challenge", challenge);
   url.searchParams.set("exchange", exchangeUrl);
@@ -156,7 +161,7 @@ export type HandoffCheck = { ok: true } | { ok: false; message: string };
  * answers /cli with a working page of its own.
  */
 export async function checkCliHandoff(webUrl: string, fetchFn: typeof fetch = fetch): Promise<HandoffCheck> {
-  const url = `${webUrl.replace(/\/+$/, "")}/cli`;
+  const url = `${webUrl.replace(/\/+$/, "")}/login`;
   let response: Response;
   try {
     response = await fetchFn(url, { redirect: "manual" });
@@ -174,7 +179,7 @@ export async function checkCliHandoff(webUrl: string, fetchFn: typeof fetch = fe
   return {
     ok: false,
     message:
-      `${webUrl} is serving something that is not the Blaster web app, so /cli there will not hand a session to this terminal.\n` +
+      `${webUrl} is serving something that is not the Blaster web app, so sign-in there will not hand a session to this terminal.\n` +
       `Twenty's redirect URI is registered as http://localhost:${port || "80"}/callback, which means the Blaster web app has to own port ${port || "80"}.\n` +
       "Another dev server is holding it. Stop that one, start \"pnpm --filter @blaster/web dev\", then run blaster login again.",
   };

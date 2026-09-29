@@ -1,10 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { checkCliHandoff } from "../src/cli/login.ts";
+import { buildAuthorizeUrl, checkCliHandoff } from "../src/cli/login.ts";
 /**
  * The web-URL check that runs before an operator is sent to a browser.
  *
  * The failure this prevents is silent and confusing: another dev server holds
- * the port, answers /cli with its own home page, and the operator signs in there
+ * the port, answers /login with its own home page, and the operator signs in there
  * and is told only that the exchange did not work. So the cases here are about
  * recognising the wrong app and saying what to do about it.
  */
@@ -52,6 +52,15 @@ describe("checkCliHandoff", () => {
     expect(result.message).toContain("port 4321");
   });
 
+  test("the probe asks for /login, the app's only sign-in page", async () => {
+    const url = buildAuthorizeUrl("http://localhost:5173", "st-1", "ch-1", "http://127.0.0.1:5555/exchange");
+    // No CLI-specific route: a second page for the same flow is a second copy to keep in step.
+    expect(new URL(url).pathname).toBe("/login");
+    expect(url).toContain("state=st-1");
+    expect(url).toContain("code_challenge=ch-1");
+    expect(url).toContain(encodeURIComponent("http://127.0.0.1:5555/exchange"));
+  });
+
   test("a trailing slash on the web URL does not double up the path", async () => {
     const seen: string[] = [];
     const spy = (async (url: string) => {
@@ -59,6 +68,6 @@ describe("checkCliHandoff", () => {
       return new Response(html(true), { status: 200 });
     }) as unknown as typeof fetch;
     await checkCliHandoff("http://localhost:5173/", spy);
-    expect(seen[0]).toBe("http://localhost:5173/cli");
+    expect(seen[0]).toBe("http://localhost:5173/login");
   });
 });
