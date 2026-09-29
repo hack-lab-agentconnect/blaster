@@ -55,6 +55,7 @@ import {
 } from "./prompt.ts";
 import { LOGOUT_USAGE, WHOAMI_USAGE, loginMain, logoutMain, whoamiMain } from "./login.ts";
 import { INBOX_USAGE, inboxList, inboxShow, type CliFlags } from "./inbox.ts";
+import { SEND_USAGE, sendMain } from "./send.ts";
 
 interface Parsed {
   command: string | undefined;
@@ -219,59 +220,11 @@ async function main(): Promise<number> {
     }
 
     case "send": {
-      let prompted = false;
-      let to = flags.get("to") as string | undefined;
-      let from = flags.get("from") as string | undefined;
-      let text = flags.get("text") as string | undefined;
-      if ((!to || !from || !text) && isInteractive(json)) {
-        prompted = true;
-        begin("blaster send");
-        if (!to) {
-          to = (await askText("Recipient number?", { placeholder: "+353871234567" })) ?? undefined;
-          if (!to) return abort("nothing was sent,");
-        }
-        if (!from) {
-          // Blaster will not guess a sending number, but the operator can
-          // still choose one at the prompt instead of retyping the command.
-          from = (await askText("Sending number?", { placeholder: "+353871234567" })) ?? undefined;
-          if (!from) return abort("nothing was sent,");
-        }
-        if (!text) {
-          text = (await askText("Message text?")) ?? undefined;
-          if (!text) return abort("nothing was sent,");
-        }
+      if (positional.length > 0 && positional[0] === "help") {
+        console.log(SEND_USAGE);
+        return 0;
       }
-      if (!to || !text) {
-        console.error("blaster send: --to and --text are required\n" + USAGE);
-        return 1;
-      }
-      if (!from) {
-        // Blaster will not guess a sending number: the wrong one sends from the
-        // wrong jurisdiction and the carrier rejects it after acceptance.
-        console.error("blaster send: --from is required; Blaster will not guess a sending number");
-        return 1;
-      }
-      const apiKey = process.env.TELNYX_API_KEY;
-      if (!apiKey) {
-        console.error("blaster send failed (configuration): TELNYX_API_KEY not set");
-        return 1;
-      }
-      const resolution = resolveMessagingProfile(process.env, { to });
-      if (!resolution.profileId) {
-        console.error("blaster send failed (configuration): no messaging profile is configured");
-        return 1;
-      }
-      const sent = await sendMessage({
-        apiKey,
-        from,
-        to,
-        text,
-        messagingProfileId: resolution.profileId,
-      });
-      console.log(json ? asJson({ sent, resolution }) : `Sent ${sent.id} (${sent.status}) from ${from} to ${to} on profile ${resolution.profileId ?? "none"}.`);
-      if (resolution.warning) console.error(`warning: ${resolution.warning}`);
-      if (prompted && !json) finish(`Sent ${sent.id}.`);
-      return 0;
+      return await sendMain(positional, flags, json);
     }
 
     case "numbers": {

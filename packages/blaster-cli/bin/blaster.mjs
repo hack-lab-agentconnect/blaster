@@ -23,4 +23,10 @@
 import { register } from "tsx/esm/api";
 
 register();
+
+// No credentials are read here. The CLI holds no Telnyx key and no Twenty
+// token: it authenticates to the API with the operator session from
+// `blaster login`, and the API is the only process that holds provider secrets.
+// A CLI that loaded its own .env would be a second, divergent copy of the send
+// path, which is the thing this command exists to avoid.
 await import("../src/cli/index.ts");

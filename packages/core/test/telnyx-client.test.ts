@@ -4,6 +4,7 @@ import {
   listMessagingProfiles,
   officialClient,
   sendMessage,
+  sendStatusOf,
   toTelnyxError,
 } from "../src/telnyx/messaging/helpers/client.ts";
 
@@ -73,13 +74,17 @@ describe("sendMessage", () => {
   });
 
   test("sends through the SDK and normalises the response", async () => {
+    // The real payload, captured from a live send: the state is per recipient at
+    // to[n].status, and there is no top-level status to read.
     const spy = stubFetch((_url, _init) =>
       jsonResponse({
         data: {
           id: "msg-1",
-          from: { phone_number: "+15557654321" },
-          to: [{ phone_number: "+15551234567" }],
-          status: "queued",
+          record_type: "message",
+          direction: "outbound",
+          from: { phone_number: "+15557654321", carrier: "TELNYX" },
+          to: [{ phone_number: "+15551234567", status: "delivered", carrier: "BOOST" }],
+          sent_at: "2026-09-29T17:06:47.148+00:00",
         },
       }),
     );
@@ -92,7 +97,7 @@ describe("sendMessage", () => {
     });
     expect(sent).toEqual({
       id: "msg-1",
-      status: "queued",
+      status: "delivered",
       from: "+15557654321",
       to: "+15551234567",
       profileId: "profile-1",
@@ -147,5 +152,55 @@ describe("listMessagingProfiles", () => {
         alphaSender: null,
       },
     ]);
+  });
+});
+
+/**
+ * Where the delivery state of a send actually lives.
+ *
+ * Every send used to report "unknown" while Telnyx knew the answer, because the
+ * status was being read from the top of the message instead of from the
+ * recipient it applies to. These cases pin the real shape, including the
+ * top-level field that does not exist, so a future SDK change cannot quietly
+ * take delivery tracking back to "unknown".
+ */
+describe("sendStatusOf", () => {
+  test("reads the status the carrier reported for the recipient", () => {
+    expect(
+      sendStatusOf({ to: [{ phone_number: "+15551234567", status: "delivered", carrier: "BOOST" }] }),
+    ).toBe("delivered");
+  });
+
+  test("reads a pre-delivery state too", () => {
+    expect(sendStatusOf({ to: [{ phone_number: "+15551234567", status: "queued" }] })).toBe("queued");
+    expect(sendStatusOf({ to: [{ status: "sent" }] })).toBe("sent");
+  });
+
+  test("ignores a top-level status, because Telnyx does not send one", () => {
+    // A test that fed this shape is what let the bug through: it looked right,
+    // so nothing questioned why every live send said "unknown".
+    expect(sendStatusOf({ status: "delivered", to: [{ status: "failed" }] })).toBe("failed");
+    expect(sendStatusOf({ status: "delivered" })).toBe("unknown");
+  });
+
+  test("a message with no recipient state is unknown, not a guess", () => {
+    expect(sendStatusOf({})).toBe("unknown");
+    expect(sendStatusOf({ to: [] })).toBe("unknown");
+    expect(sendStatusOf({ to: [{ phone_number: "+15551234567" }] })).toBe("unknown");
+  });
+
+  test("skips malformed entries rather than returning junk", () => {
+    expect(sendStatusOf({ to: [null, "nonsense", { status: 7 }, { status: "delivered" }] })).toBe(
+      "delivered",
+    );
+  });
+
+  test("the first recipient that reports a state decides the send", () => {
+    // Blaster sends to one number, so this is the send's status. A fan-out
+    // would need per-recipient reporting, and pretending otherwise would report
+    // one recipient's outcome as the whole message's.
+    expect(
+      sendStatusOf({ to: [{ status: "queued" }, { status: "delivered" }, { status: "failed" }] }),
+    ).toBe("queued");
   });
 });

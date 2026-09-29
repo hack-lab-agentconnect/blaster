@@ -257,12 +257,11 @@ app.get("/api/messaging/profiles", async (c) => {
  * message sent from a profile registered for the wrong jurisdiction is
  * rejected by the carrier after it has already been accepted by Telnyx.
  */
-app.post("/api/messages/send", async (c) => {
+app.post("/api/messages/send", requireOperator, async (c) => {
   const body = (await c.req.json().catch(() => null)) as {
     to?: string;
     from?: string;
     text?: string;
-    numberProfileId?: string;
   } | null;
 
   if (!body?.to || !body.text) {
@@ -273,22 +272,33 @@ app.post("/api/messages/send", async (c) => {
   if (!apiKey) return c.json({ error: "TELNYX_API_KEY is not configured" }, 500);
 
   // `from` is required by Telnyx. Without a number we cannot guess one, so the
-  // caller has to say which sending number to use. It is resolved first because
-  // the profile that follows is bound to that number, not to the recipient.
+  // caller has to say which sending number to use. It is read first because the
+  // profile that follows is bound to that number, not to the recipient.
   if (!body.from) {
     return c.json({ error: "from is required: Blaster will not guess a sending number" }, 400);
   }
 
-  // A number's own record decides its profile. The workspace's
-  // `agencyPhones.messagingProfileId` is the source of truth, because a workspace
-  // with several numbers cannot be described by one environment variable:
-  // each number is bought or assigned against its own registration. The
-  // country rules and the global variable are fallbacks for a number nobody has
-  // recorded a profile for.
+  // The sending number's own record decides its profile, and nothing else does.
+  // A workspace with several numbers cannot be described by one environment
+  // variable, because each number is bought or assigned against its own
+  // registration, so a global default either misdescribes the rest or forces
+  // every number onto one profile. A caller cannot pass a profile in either: the
+  // point is that the workspace knows which profile each number is registered
+  // against, and this route is the only place that fact is read.
   const bound = profileBoundToNumber(await agencyPhonesForSending(), body.from);
+  if (bound === null) {
+    return c.json(
+      {
+        error: `${body.from} has no messaging profile in Twenty`,
+        detail:
+          "Set messagingProfileId on the number's agencyPhones record. Blaster does not fall back to a global profile, because the wrong one is rejected by the carrier after acceptance.",
+      },
+      409,
+    );
+  }
   const resolution = resolveMessagingProfile(process.env, {
     to: body.to,
-    numberProfileId: bound?.profileId ?? body.numberProfileId,
+    numberProfileId: bound.profileId,
   });
   if (!resolution.profileId) {
     return c.json(
@@ -305,8 +315,6 @@ app.post("/api/messages/send", async (c) => {
       text: body.text,
       messagingProfileId: resolution.profileId,
     });
-    // A fallback warning travels with the response rather than being logged and
-    // dropped, so the caller can see a misconfigured jurisdiction immediately.
     return c.json({ sent, resolution });
   } catch (error) {
     return fail(c, error, "Failed to send the message", 502);

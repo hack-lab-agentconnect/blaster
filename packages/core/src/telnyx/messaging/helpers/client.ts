@@ -41,6 +41,30 @@ export function toTelnyxError(error: unknown): TelnyxError {
   return new TelnyxError(status, detail.slice(0, 300));
 }
 
+/**
+ * The status Telnyx actually reports for a send.
+ *
+ * A message has no top-level `status`. The state lives per recipient, at
+ * `to[n].status`, and that is where the carrier's verdict eventually appears, so
+ * reading `data.status` finds nothing and every send looks "unknown" no matter
+ * what the provider said. Confirmed against a real send, whose payload carried
+ * `to: [{ phone_number, status: "delivered", carrier, line_type }]` and no
+ * `status` of its own.
+ *
+ * Blaster sends to one number, so the first recipient that reports a status is
+ * the status of the send. A fan-out would take the first and say so here rather
+ * than let one recipient's outcome stand in for all of them.
+ */
+export function sendStatusOf(data: Record<string, unknown>): string {
+  const recipients = Array.isArray(data.to) ? data.to : [];
+  for (const recipient of recipients) {
+    if (!recipient || typeof recipient !== "object") continue;
+    const status = scalar((recipient as Record<string, unknown>).status, "");
+    if (status !== "") return status;
+  }
+  return "unknown";
+}
+
 let cachedClient: { apiKey: string; client: TelnyxClient } | null = null;
 
 /** Build (and memoise per key) the official SDK client. */
@@ -109,7 +133,7 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
     const data = (response?.data ?? {}) as Record<string, unknown>;
     return {
       id: scalar(data.id, ""),
-      status: scalar(data.status, "unknown"),
+      status: sendStatusOf(data),
       from: phoneNumberOf(data.from, input.from),
       to: phoneNumberOf(data.to, input.to),
       profileId: input.messagingProfileId,

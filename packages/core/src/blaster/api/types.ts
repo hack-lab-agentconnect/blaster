@@ -55,6 +55,39 @@ export interface ListConversationsQuery {
   withCampaign?: boolean;
 }
 
+/** What the provider said about a message we just handed it. */
+export interface SentMessage {
+  id: string;
+  /**
+   * The state the provider reported for the recipient, e.g. `queued` at
+   * acceptance. Delivery arrives later on the webhook, not in this response.
+   */
+  status: string;
+  from: string;
+  to: string;
+  profileId: string | null;
+}
+
+/** A send request. The profile is never part of it: the API reads it. */
+export interface SendRequest {
+  to: string;
+  text: string;
+  /** Omit to let the API use the workspace's only number. */
+  from?: string;
+}
+
+/** How the sending number's profile was chosen, echoed for the operator. */
+export interface SendResolution {
+  profileId: string | null;
+  /**
+   * Always `bound-to-number` for a send: the profile came from the sending
+   * number's own record in Twenty, never from a global default.
+   */
+  reason: string;
+  country: string | null;
+  warning?: string;
+}
+
 /**
  * A failure the caller can act on. `unauthorized` is separated from the rest
  * because it has exactly one remedy: sign in again.
