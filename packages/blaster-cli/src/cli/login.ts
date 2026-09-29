@@ -126,6 +126,50 @@ export function resolveWebUrl(flag: string | undefined, root = process.cwd()): s
   return loadHome(root).config.webUrl ?? DEFAULT_WEB_URL;
 }
 
+/**
+ * The marker `apps/web/index.html` carries, identifying the document as Blaster's.
+ *
+ * Matched loosely on purpose: the attribute may be written with any spacing or
+ * quote style, and a false accept here is what the check exists to prevent, so
+ * the pattern is narrow on the value and forgiving on the formatting.
+ */
+const HANDOFF_MARKER = /name\s*=\s*["']blaster-web["']/i;
+
+export type HandoffCheck = { ok: true } | { ok: false; message: string };
+
+/**
+ * Confirm the web URL serves Blaster's own CLI handoff page.
+ *
+ * Deliberately a read of the document and not a port check. A port being open
+ * says nothing about what is listening on it, and here that is the whole problem:
+ * the port is claimed by whichever dev server started first, and the wrong one
+ * answers /cli with a working page of its own.
+ */
+export async function checkCliHandoff(webUrl: string, fetchFn: typeof fetch = fetch): Promise<HandoffCheck> {
+  const url = `${webUrl.replace(/\/+$/, "")}/cli`;
+  let response: Response;
+  try {
+    response = await fetchFn(url, { redirect: "manual" });
+  } catch (error) {
+    return {
+      ok: false,
+      message:
+        `nothing is serving the Blaster web app at ${webUrl} (${error instanceof Error ? error.message : String(error)}).\n` +
+        "Start it with \"pnpm --filter @blaster/web dev\", or pass --web-url.",
+    };
+  }
+  const body = await response.text().catch(() => "");
+  if (HANDOFF_MARKER.test(body)) return { ok: true };
+  const port = new URL(webUrl).port;
+  return {
+    ok: false,
+    message:
+      `${webUrl} is serving something that is not the Blaster web app, so /cli there will not hand a session to this terminal.\n` +
+      `Twenty's redirect URI is registered as http://localhost:${port || "80"}/callback, which means the Blaster web app has to own port ${port || "80"}.\n` +
+      "Another dev server is holding it. Stop that one, start \"pnpm --filter @blaster/web dev\", then run blaster login again.",
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Loopback exchange server (receives Twenty tokens from the web page)
 // ---------------------------------------------------------------------------
@@ -480,6 +524,21 @@ export async function loginMain(
       console.error(`blaster login: could not start the local exchange server: ${error instanceof Error ? error.message : String(error)}`);
       return 1;
     }
+
+    // Check the web app is really ours before sending an operator to a browser.
+    //
+    // Twenty's registered redirect URI is http://localhost:5173/callback, so this
+    // app has to own port 5173. Anything else on that port answers /cli with its
+    // own home page, and the operator is then dropped into an unrelated app,
+    // signs in there, and is told only that the exchange did not work. Failing
+    // here names the cause instead.
+    const handoff = await checkCliHandoff(webUrl);
+    if (!handoff.ok) {
+      exchange.close();
+      console.error(`blaster login: ${handoff.message}`);
+      return 1;
+    }
+
     const authorize = buildAuthorizeUrl(webUrl, state, challenge, exchangeUrl);
     try {
       console.log(`Opening browser: ${authorize}`);

@@ -3,7 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Blaster — operator sign-in</title>
+    <!--
+      Identifies this document as Blaster's own web app.
+
+      `blaster login` fetches its --web-url before sending an operator to a
+      browser, and refuses to continue unless this marker is present. That check
+      exists because the OAuth redirect URI registered with Twenty is
+      http://localhost:5173/callback, so this app has to own port 5173, and
+      anything else on that port answers /cli with its own home page. Without the
+      marker an operator is dropped into an unrelated app and told only that
+      sign-in "did not work".
+    -->
+    <meta name="blaster-web" content="operator-sign-in" />
+    <title>Blaster operator sign-in</title>
   </head>
   <body>
     <div id="root"></div>
