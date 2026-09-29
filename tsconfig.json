@@ -1,8 +1,34 @@
 {
-  "extends": "./tsconfig.base.json",
-  "files": [],
-  "references": [
-    { "path": "./packages/core" },
-    { "path": "./apps/api" }
-  ]
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "//": [
+    "Compiler options for the deployed build only.",
+    "",
+    "Each package has its own tsconfig and `pnpm typecheck` runs those explicitly,",
+    "so this file is not part of the local gate. It exists because Vercel compiles",
+    "api/index.ts on its own, without a tsconfig of its own, and falls back to the",
+    "compiler's defaults: CommonJS, no DOM library. Those defaults are wrong twice",
+    "over. The API is built on the Web platform types, so `Request`, `Response` and",
+    "`Headers` must come from lib.dom, not from @types/node, and the source uses",
+    "`import.meta` to decide whether it is the process entry point, which CommonJS",
+    "cannot express.",
+    "",
+    "skipLibCheck is on for the usual reason: a dependency's own declarations are",
+    "not ours to fix, and one of them failing would block every deploy."
+  ],
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["node"],
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true
+  },
+  "include": ["api/**/*.ts", "apps/api/src/**/*.ts", "packages/core/src/**/*.ts"]
 }

@@ -32,6 +32,7 @@
     "@modelcontextprotocol/client": "^2.1.0",
     "@types/node": "^22.10.2",
     "convex": "^1.46.0",
+    "esbuild": "0.28.1",
     "graphql": "^17.0.2",
     "lefthook": "^1.7.18",
     "tsx": "^4.19.2",
