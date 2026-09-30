@@ -23,8 +23,9 @@
     "check:naming": "node scripts/check-naming-conventions.mjs",
     "check:no-emoji": "node scripts/check-no-emojis.mjs",
     "check:no-font-mono": "node scripts/check-no-font-mono.mjs",
+    "check:encoding": "node scripts/check-encoding.mjs",
     "check:env": "node scripts/check-env-manifest.mjs",
-    "check": "pnpm run check:secrets:self-test && pnpm run check:secrets && pnpm run check:naming && pnpm run check:env && pnpm run check:generated-client && pnpm run check:no-emoji && pnpm run check:no-font-mono && pnpm run typecheck && pnpm run test",
+    "check": "pnpm run check:secrets:self-test && pnpm run check:secrets && pnpm run check:naming && pnpm run check:env && pnpm run check:generated-client && pnpm run check:no-emoji && pnpm run check:no-font-mono && pnpm run check:encoding && pnpm run typecheck && pnpm run test",
     "check:generated-client": "node scripts/check-generated-client.mjs"
   },
   "devDependencies": {

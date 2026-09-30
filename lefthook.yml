@@ -29,6 +29,9 @@ pre-push:
     brand-no-font-mono:
       run: pnpm run check:no-font-mono
 
+    encoding-no-mojibake:
+      run: pnpm run check:encoding
+
     typecheck:
       run: pnpm run typecheck
 

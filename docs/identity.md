@@ -72,7 +72,7 @@ web app                        Blaster API                    Twenty (behind the
 | `GET /api/auth/me` | Introspect a presented Bearer token; 401 when it is not active |
 
 `blaster login` drives the same flow from the terminal: it prints a URL, the
-browser completes the round trip through `/cli`, and the tokens are written to
+browser completes the round trip through `/login`, and the tokens are written to
 the CLI's session file.
 
 ## Tokens, and where they live

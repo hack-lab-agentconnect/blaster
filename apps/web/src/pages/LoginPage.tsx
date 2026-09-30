@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
 import { beginSignIn, loadSession } from "../lib/auth/session";
+import { LogIn, AlertCircle } from "lucide-react";
+import { TropicalTideBackground } from "../components/background-gradient/tropical-tide-background";
 import {
   clearCliExchange,
   markOAuthReturn,
@@ -12,34 +13,21 @@ import {
 /**
  * The one sign-in page.
  *
- * Ported from the Vercel site's login page in open-twenty-dialer
- * (`frontend/src/pages/LoginPage.tsx`), which gets the shape right: a single
- * page, a single action, and an honest statement that the account lives in
- * Twenty. What is not ported is its furniture: it renders through Tailwind and
- * `lucide-react`, and this app has neither. Adding a CSS framework and an icon
- * package to reproduce one button would be a worse trade than matching the
- * classes this app already has.
+ * Identical by construction to the login page in open-twenty-dialer
+ * (`frontend/src/pages/LoginPage.tsx`): same animated background, same card,
+ * same button, same Tailwind stack. When the URL carries an `exchange`
+ * parameter this page is also the terminal's handoff for `blaster login`,
+ * and those states reuse the same card and the same notice language.
  *
- * The route shape is identical, which is the part that matters:
+ * Route shape:
  *
  *   1. GET  /api/auth/config  public discovery, no credentials
  *   2. redirect to Twenty's /authorize with S256 PKCE
  *   3. Twenty returns to /callback
  *   4. POST /api/auth/token    code + verifier, exchanged server-side
  *   5. GET  /api/auth/me       introspect, so a stored token is proven live
- *
- * Blaster keeps `/api/auth/*` rather than that repo's `/api/oauth/*`. The
- * shape is the same and the difference is only a prefix, but renaming it would
- * break `blaster login`, the CLI's token validation, and this app, for no gain.
- *
- * It is also the page `blaster login` opens. When the URL carries an `exchange`
- * parameter this page is the terminal's handoff as well as a sign-in form, and
- * after the round trip it hands the tokens to the loopback rather than just
- * showing that it worked. There is no separate CLI page: a second route would be
- * a second implementation of this flow, and two copies of sign-in drift.
  */
 export function LoginPage() {
-  const navigate = useNavigate();
   const [problem, setProblem] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [exchange, setExchange] = useState(() => readCliExchange());
@@ -52,26 +40,29 @@ export function LoginPage() {
    * Runs whenever a session exists and an exchange is pending, which covers both
    * orders: an operator who was already signed in when they opened the CLI URL,
    * and one who signed in through this page and came back from /callback.
+   * A failed post clears the single-use exchange either way; a retryable
+   * failure can be re-posted from the value still in state.
    */
-  const deliver = useCallback(
-    (pending: NonNullable<typeof exchange>, session: NonNullable<ReturnType<typeof loadSession>>) => {
-      setResult({ kind: "posting" });
-      void postCliExchange(pending, session.tokens).then((outcome) => {
-        setResult(outcome);
-        // The exchange is single-use, so the mirror is cleared either way; a
-        // retryable failure can be re-posted from the value still in state.
-        clearCliExchange();
-      });
-    },
-    [],
-  );
-
   useEffect(() => {
     if (!exchange) return;
     const session = loadSession();
     if (!session) return;
-    deliver(exchange, session);
-  }, [exchange, deliver, attempt]);
+    // StrictMode mounts, unmounts, and remounts in development: without this
+    // guard the handoff posts twice and the loopback answers the second post
+    // with a refusal, so a successful login ends on an error notice.
+    let cancelled = false;
+    const pending = exchange;
+    const sessionTokens = session.tokens;
+    setResult({ kind: "posting" });
+    void postCliExchange(pending, { ...sessionTokens }).then((outcome) => {
+      if (cancelled) return;
+      setResult(outcome);
+      clearCliExchange();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [exchange, attempt]);
 
   const isCli = exchange !== null;
   const session = loadSession();
@@ -80,32 +71,50 @@ export function LoginPage() {
   // handoff is running above, so this is only a status.
   if (isCli && session) {
     return (
-      <div className="card">
-        <h1>Authorize the blaster CLI</h1>
-        <p>
-          Sending this browser&apos;s Twenty session to the terminal running <code>blaster login</code>. The
-          tokens go only to that local loopback listener.
-        </p>
-        <div role="status" aria-live="polite">
-          {result.kind === "idle" && <div className="notice info">Preparing the local exchange...</div>}
-          {result.kind === "posting" && <div className="notice info">Sending the session to the CLI...</div>}
-          {result.kind === "ok" && (
-            <div className="notice success">Authorized. You can close this window and return to your terminal.</div>
-          )}
-          {result.kind === "error" && (
-            <div>
-              <div className="notice error">{result.detail}</div>
-              {result.retryable && exchange && (
-                <div className="row">
-                  <button type="button" className="button secondary" onClick={() => setAttempt((n) => n + 1)}>
+      <TropicalTideBackground className="min-h-screen flex items-center justify-center px-4">
+        <div className="w-full max-w-md py-16">
+          <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg p-8 space-y-5">
+            <h2 className="text-xl font-semibold text-gray-800">Authorize the blaster CLI</h2>
+            <p className="text-sm text-gray-500">
+              Sending this browser&apos;s Twenty session to the terminal running <code>blaster login</code>. The
+              tokens go only to that local loopback listener.
+            </p>
+            {result.kind === "idle" && (
+              <div className="flex items-center gap-2 text-blue-700 bg-blue-50 p-3 rounded-lg text-sm">
+                Preparing the local exchange...
+              </div>
+            )}
+            {result.kind === "posting" && (
+              <div className="flex items-center gap-2 text-blue-700 bg-blue-50 p-3 rounded-lg text-sm">
+                <div className="w-5 h-5 border-2 border-blue-700 border-t-transparent rounded-full animate-spin" />
+                Sending the session to the CLI...
+              </div>
+            )}
+            {result.kind === "ok" && (
+              <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 p-3 rounded-lg text-sm">
+                Authorized. You can close this window and return to your terminal.
+              </div>
+            )}
+            {result.kind === "error" && (
+              <>
+                <div className="flex items-center gap-2 text-red-600 bg-red-50 p-3 rounded-lg text-sm">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  {result.detail}
+                </div>
+                {result.retryable && exchange && (
+                  <button
+                    type="button"
+                    onClick={() => setAttempt((n) => n + 1)}
+                    className="w-full flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-700 disabled:bg-brand-400 text-white font-semibold py-3 rounded-lg transition"
+                  >
                     Try again
                   </button>
-                </div>
-              )}
-            </div>
-          )}
+                )}
+              </>
+            )}
+          </div>
         </div>
-      </div>
+      </TropicalTideBackground>
     );
   }
 
@@ -124,29 +133,37 @@ export function LoginPage() {
   };
 
   return (
-    <div className="card">
-      <h1>{isCli ? "Sign in to authorize blaster" : "Sign in"}</h1>
-      {problem ? <div className="notice error">{problem}</div> : null}
-      <div className="row">
-        <button type="button" className="button" onClick={signIn} disabled={starting}>
-          {starting ? "Redirecting to Twenty..." : "Continue with Twenty"}
-        </button>
+    <TropicalTideBackground className="min-h-screen flex items-center justify-center px-4">
+      <div className="w-full max-w-md py-16">
+        <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg p-8 space-y-5">
+          <h2 className="text-xl font-semibold text-gray-800">{isCli ? "Sign in to authorize blaster" : "Sign In"}</h2>
+          {problem && (
+            <div className="flex items-center gap-2 text-red-600 bg-red-50 p-3 rounded-lg text-sm">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              {problem}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={signIn}
+            disabled={starting}
+            className="w-full flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-700 disabled:bg-brand-400 text-white font-semibold py-3 rounded-lg transition"
+          >
+            {starting ? (
+              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <>
+                <LogIn className="w-5 h-5" />
+                Continue with Twenty
+              </>
+            )}
+          </button>
+          <p className="text-center text-sm text-gray-500">
+            Members are created in Twenty. Sign in with your Twenty account — no Blaster password needed.
+            {isCli ? " Signing in here authorizes the blaster command running in your terminal." : ""}
+          </p>
+        </div>
       </div>
-      <p>
-        Members are created in Twenty, not here. Signing in uses your Twenty account, so there is no Blaster
-        password to create, store, or reset.
-        {isCli ? (
-          <>
-            {" "}
-            Signing in here authorizes the <code>blaster</code> command running in your terminal.
-          </>
-        ) : (
-          <>
-            {" "}
-            The same sign-in authorizes <code>blaster</code> on this machine via <code>blaster login</code>.
-          </>
-        )}
-      </p>
-    </div>
+    </TropicalTideBackground>
   );
 }

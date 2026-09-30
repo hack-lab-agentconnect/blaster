@@ -4,9 +4,9 @@
  * Identity comes from Twenty itself (Twenty is the OAuth provider); there is
  * no separate identity service. The flow reuses the proven loopback shape:
  *
- * 1. PKCE browser flow (default): the CLI generates a state nonce and an
- *    S256 challenge, opens `<webUrl>/cli?state=—¦&code_challenge=—¦&
- *    exchange=—¦`, and serves a one-shot loopback exchange on 127.0.0.1. The
+ * 1. Browser handoff (default): the CLI generates a state nonce and an
+ *    S256 challenge, opens `<webUrl>/login?state=…&code_challenge=…&
+ *    exchange=…`, and serves a one-shot loopback exchange on 127.0.0.1. The
  *    web app signs the operator in against Twenty and POSTs the Twenty
  *    tokens back. The CLI accepts the exchange only when state and challenge
  *    echo this run, binding it to the terminal.
@@ -64,7 +64,7 @@ const MAX_TOKEN_LENGTH = 16_384;
 /** Never print a token in full; show first/last four with the middle masked. */
 export function maskSecret(token: string): string {
   if (token.length <= 12) return "***";
-  return `${token.slice(0, 4)}—¦${token.slice(-4)}`;
+  return `${token.slice(0, 4)}…${token.slice(-4)}`;
 }
 
 /** Accept http(s) origins only. Pure. */
@@ -158,7 +158,7 @@ export type HandoffCheck = { ok: true } | { ok: false; message: string };
  * Deliberately a read of the document and not a port check. A port being open
  * says nothing about what is listening on it, and here that is the whole problem:
  * the port is claimed by whichever dev server started first, and the wrong one
- * answers /cli with a working page of its own.
+ * answers /login with a working page of its own.
  */
 export async function checkCliHandoff(webUrl: string, fetchFn: typeof fetch = fetch): Promise<HandoffCheck> {
   const url = `${webUrl.replace(/\/+$/, "")}/login`;
@@ -543,7 +543,7 @@ export async function loginMain(
     // Check the web app is really ours before sending an operator to a browser.
     //
     // Twenty's registered redirect URI is http://localhost:5173/callback, so this
-    // app has to own port 5173. Anything else on that port answers /cli with its
+    // app has to own port 5173. Anything else on that port answers /login with its
     // own home page, and the operator is then dropped into an unrelated app,
     // signs in there, and is told only that the exchange did not work. Failing
     // here names the cause instead.
@@ -560,7 +560,7 @@ export async function loginMain(
       if (!openBrowser(authorize)) {
         console.log(`Could not open a browser automatically. Open this URL manually: ${authorize}`);
       }
-      console.log("Waiting for sign-in to complete—¦");
+      console.log("Waiting for sign-in to complete…");
       const outcome = await exchange.result;
       if (!outcome.ok) {
         console.error(

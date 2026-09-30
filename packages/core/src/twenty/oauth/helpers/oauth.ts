@@ -13,7 +13,7 @@
  *   - the web app runs the full code flow as a public SPA client: verifier in
  *     sessionStorage, authorize redirect, code redemption (proxied through
  *     the Hono API so CORS can never block it).
- *   - the CLI opens the web `/cli` page with its own state + challenge; the
+ *   - the CLI opens the web `/login` page with its own state + challenge; the
  *     page signs the operator in and POSTs the resulting Twenty tokens back
  *     to the loopback exchange, which the CLI accepts only on a state and
  *     challenge echo.
