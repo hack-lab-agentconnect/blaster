@@ -91,10 +91,10 @@ describe("prospect selection contract", () => {
     const seen: { current: Seen | null } = { current: null };
     const client = clientFor((s) => {
       seen.current = s;
-      return json({ fields: [{ name: "niche", label: "Industry", type: "string", filterOperators: ["eq"] }] });
+      return json({ fields: [{ name: "niche", label: "Industry", type: "string", filterOperators: ["eq"], operatorLabels: ["equals"] }] });
     });
     await expect(client.listProspectFields()).resolves.toEqual([
-      { name: "niche", label: "Industry", type: "string", filterOperators: ["eq"] },
+      { name: "niche", label: "Industry", type: "string", filterOperators: ["eq"], operatorLabels: ["equals"] },
     ]);
     expect(seen.current?.url).toBe("https://blaster.example/api/prospects/fields");
   });

@@ -104,19 +104,42 @@ export interface SendingNumber {
 }
 
 /**
+ * One filter operator, as the field menu and every prompt expose it.
+ * `token` is the DSL term sent to Twenty; `label` and `hint` are the human
+ * words the prompts render instead of the bare token. This is the typed,
+ * normalized operator set: the CLI, the API, and any later function all read
+ * these from the shared registry rather than spelling tokens by hand.
+ */
+export interface ProspectOperator {
+  /** The DSL token, e.g. `eq` in `field[eq]:"value"`. */
+  token: string;
+  /** What the operator is, in plain words, for a prompt. */
+  label: string;
+  /** What a value means, in plain words, for a prompt. */
+  hint: string;
+}
+
+/**
  * One filterable prospect field, exactly as `GET /api/prospects/fields`
  * returns it. Names are Twenty field API names, never display labels, and
- * `filterOperators` is the complete menu: anything else is a 400, so a
- * client cannot submit arbitrary Twenty query DSL.
+ * `filterOperators` is the complete menu (DSL tokens): anything else is a
+ * 400, so a client cannot submit arbitrary Twenty query DSL.
+ * `operatorLabels` is the human word for each token, in the same order, so
+ * a prompt shows "equals" instead of "eq" without a second source of truth.
  */
 export interface ProspectField {
   name: string;
   label: string;
   type: "string" | "number" | "boolean" | "enum";
   filterOperators: string[];
+  operatorLabels: string[];
 }
 
-/** One filter clause. Values arrive as strings from the CLI and are coerced server-side. */
+/**
+ * One filter clause. Values arrive as strings from the CLI and are coerced
+ * server-side. The operator is a DSL token from the shared registry
+ * (`eq`, `like`, ...), validated against the field's allowed set.
+ */
 export interface ProspectFilter {
   field: string;
   operator: string;

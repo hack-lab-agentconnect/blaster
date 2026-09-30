@@ -351,9 +351,15 @@ async function guidedSend(flags: CliFlags, json: boolean, root: string, seedText
       if (fieldName === "__done" || fieldName === "__all") break;
       const field = fields.find((candidate) => candidate.name === fieldName);
       if (!field) continue;
+      // Render the human operator word, not the bare DSL token: "equals"
+      // instead of "eq". The value is still the token, so the filter the
+      // server validates is unchanged; only what the operator reads differs.
       const operator = await askSelect(
         `Operator for ${field.label}?`,
-        field.filterOperators.map((name) => ({ value: name, label: name })),
+        field.filterOperators.map((token, index) => ({
+          value: token,
+          label: field.operatorLabels[index] ?? token,
+        })),
       );
       if (!operator) return abort("nothing was sent,");
       const value = await askText(`Value for ${field.label}?`);

@@ -96,7 +96,7 @@ function stubApi(overrides: Record<string, (body: unknown) => unknown> = {}): Re
       ],
     }),
     "/api/prospects/fields": () => ({
-      fields: [{ name: "niche", label: "Industry", type: "string", filterOperators: ["eq", "neq"] }],
+      fields: [{ name: "niche", label: "Industry", type: "string", filterOperators: ["eq", "neq"], operatorLabels: ["equals", "is not"] }],
     }),
     "/api/prospects/search": () => ({ total: 1, prospects: [PROSPECT], nextCursor: null }),
     "/api/messages/preview": () => ({ total: 1, eligible: 1, skipped: 0, sample: [PROSPECT] }),

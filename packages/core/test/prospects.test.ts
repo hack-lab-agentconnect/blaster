@@ -11,6 +11,7 @@
 import { describe, expect, test } from "vitest";
 import {
   E164,
+  OPERATORS,
   filterToDsl,
   filtersToDsl,
   findAgencyPhoneRow,
@@ -47,6 +48,19 @@ describe("prospectFields", () => {
       expect(names).toContain(expected);
     }
   });
+
+  test("operator labels line up with the tokens, and the registry is the source", () => {
+    const fields = prospectFields();
+    for (const field of fields) {
+      expect(field.operatorLabels).toHaveLength(field.filterOperators.length);
+      // Every label is a real human word from the shared OPERATORS registry.
+      for (let i = 0; i < field.filterOperators.length; i += 1) {
+        const op = OPERATORS.find((entry) => entry.token === field.filterOperators[i]);
+        expect(op, `operator ${field.filterOperators[i]}`).toBeDefined();
+        expect(field.operatorLabels[i]).toBe(op?.label);
+      }
+    }
+  });
 });
 
 describe("validateProspectFilters", () => {
@@ -69,7 +83,7 @@ describe("validateProspectFilters", () => {
       problems: ["filters[0].field is not filterable"],
     });
     expect(validateProspectFilters([{ field: "rating", operator: "like", value: "4" }])).toEqual({
-      problems: ["filters[0].operator must be one of eq, gt, gte, lt, lte"],
+      problems: ["filters[0].operator must be one of equals (eq), is not (neq), greater than (gt), at least (gte), less than (lt), at most (lte)"],
     });
     const badNumber = validateProspectFilters([{ field: "rating", operator: "gte", value: "high" }]);
     expect("problems" in badNumber && badNumber.problems).toEqual(["filters[0].value for rating must be a number"]);
