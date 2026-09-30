@@ -1,128 +1,204 @@
-// Pre-push gate: architecture rule — enforces the {library}/{domainname}/helpers convention.
-// Applies to lib/ and to each packages/<package>/src/ root.
+// Pre-push gate: the backend naming convention in docs/naming-conventions.md.
 //
-// Verifies, for every checked root:
-// 1. Library and domain directory names are lowercase kebab-case (^[a-z0-9-]+$)
-// 2. Every domain has an index.ts entrypoint
-// 3. Any helpers/ directory contains an index.ts barrel
-// 4. No helper file imports the parent domain barrel (../index), which would
-//    make the barrel depend on its own helpers
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+// The rule is scoped to BACKEND source. A React tree is organised by screen and
+// component, which is a different and correct convention, so apps/web is not
+// checked: renaming a component tree to satisfy a rule written for server
+// modules would make it worse, not better.
+//
+// What this enforces, per docs/naming-conventions.md:
+//   1. Library and domain directories are lowercase kebab-case.
+//   2. Backend .ts file names are lowercase kebab-case.
+//   3. Every domain has index.ts and types.ts.
+//   4. Every helpers/ directory has an index.ts barrel.
+//   5. No helper imports its parent domain barrel (../index), which would make
+//      the barrel depend on its own helpers.
+//   6. A domain index.ts uses named exports, not `export *`, so a domain's
+//      public surface is readable without opening every helper.
+//
+// Generated trees are exempt: their file names and exports belong to the
+// generator, and editing them is undone by the next run.
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const KEBAB_REGEX = /^[a-z0-9-]+$/;
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { basename, dirname, join, relative, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+/** Kebab-case: lowercase, digits, and single internal hyphens. */
+const KEBAB = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+/** Directory trees exempt from every rule, with the reason each exists. */
+const EXEMPT_TREES = [
+  { segment: "generated", reason: "machine output, overwritten by its generator" },
+  { segment: "_generated", reason: "machine output, overwritten by its generator" },
+  { segment: "node_modules", reason: "not our source" },
+];
+
+/**
+ * Backend roots, each of which holds library or domain directories directly.
+ * Any packages/<name>/src is discovered automatically, so adding a package
+ * needs no edit here; an app has to be listed.
+ *
+ * `apps/api/src` is not a root: it holds a process entry (`index.ts`, which
+ * binds the port) plus `lib/`, so the root is one level deeper.
+ *
+ * `convex/` is deliberately absent. That tree belongs to the Convex framework,
+ * which fixes its own file names (`convex.config.ts` is required by name, and
+ * its function modules are camelCase by the framework's convention). Our rule
+ * is ours to apply to our source; applying it there would mean fighting the
+ * tool, so the tree is out of scope rather than exempted.
+ */
+const BACKEND_ROOTS = ["lib", "apps/api/src/lib"];
 
 const violations = [];
+const report = (path, message) => violations.push(`${path}: ${message}`);
 
-/** Roots that follow the convention, as { path, kind } pairs. */
-function collectRoots() {
-  const roots = [];
-  const libDir = join(root, 'lib');
-  if (existsSync(libDir)) roots.push({ path: libDir, kind: 'lib' });
-
-  const packagesDir = join(root, 'packages');
-  if (existsSync(packagesDir)) {
-    for (const entry of readdirSync(packagesDir, { withFileTypes: true })) {
-      if (!entry.isDirectory() || !KEBAB_REGEX.test(entry.name)) continue;
-      const srcDir = join(packagesDir, entry.name, 'src');
-      if (existsSync(srcDir) && statSync(srcDir).isDirectory()) {
-        roots.push({ path: srcDir, kind: `packages/${entry.name}/src` });
-      }
-    }
-  }
-  return roots;
+/** True when any path segment marks this file as generated output. */
+function isGenerated(segments) {
+  return segments.some((segment) =>
+    EXEMPT_TREES.some((tree) => segment === tree.segment),
+  );
 }
 
-/** A helpers/ directory needs a barrel and must not import the domain barrel. */
-function checkHelpers(domainPath, label) {
-  const helpersPath = join(domainPath, 'helpers');
-  if (!existsSync(helpersPath) || !statSync(helpersPath).isDirectory()) return;
+function* walk(dir) {
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (entry.name.startsWith(".")) continue;
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (EXEMPT_TREES.some((tree) => entry.name === tree.segment)) continue;
+      yield* walk(full);
+    } else if (entry.isFile()) {
+      yield full;
+    }
+  }
+}
 
-  if (!existsSync(join(helpersPath, 'index.ts'))) {
-    violations.push(`${label}/helpers: Missing required barrel "helpers/index.ts".`);
+/** Check one backend root: directory names, file names, barrels, exports. */
+function checkRoot(rootPath, label) {
+  if (!existsSync(rootPath)) return false;
+
+  // A root holds either standalone domains (each with its own index.ts) or
+  // libraries that contain domain subdirectories.
+  const entries = readdirSync(rootPath, { withFileTypes: true }).filter((e) => e.isDirectory());
+  if (entries.length === 0) {
+    report(label, "Must contain at least one domain or library directory.");
+    return true;
   }
 
-  for (const file of readdirSync(helpersPath).filter((f) => f.endsWith('.ts'))) {
-    const lines = readFileSync(join(helpersPath, file), 'utf8').split('\n');
+  const hasIndex = (path) => existsSync(join(path, "index.ts"));
+
+  for (const entry of entries) {
+    const entryPath = join(rootPath, entry.name);
+    if (!KEBAB.test(entry.name)) {
+      report(`${label}/${entry.name}`, "Directory name must be lowercase kebab-case.");
+    }
+
+    if (hasIndex(entryPath)) {
+      checkDomain(entryPath, `${label}/${entry.name}`);
+      continue;
+    }
+
+    // A library directory: every domain beneath it must be well formed.
+    for (const domain of readdirSync(entryPath, { withFileTypes: true }).filter((d) => d.isDirectory())) {
+      if (!KEBAB.test(domain.name)) {
+        report(`${label}/${entry.name}/${domain.name}`, "Domain name must be lowercase kebab-case.");
+      }
+      checkDomain(join(entryPath, domain.name), `${label}/${entry.name}/${domain.name}`);
+    }
+  }
+
+  // File names anywhere under the root.
+  for (const file of walk(rootPath)) {
+    const rel = relative(rootPath, file);
+    const segments = rel.split(sep);
+    if (isGenerated(segments)) continue;
+    if (!file.endsWith(".ts")) continue;
+    if (segments.includes("test")) continue;
+
+    const name = basename(file, ".ts");
+    if (name !== "index" && !KEBAB.test(name)) {
+      report(`${label}/${rel}`, `File name must be lowercase kebab-case (got "${name}").`);
+    }
+  }
+
+  return true;
+}
+
+/** A domain needs an entrypoint, a helpers barrel, and a readable surface. */
+function checkDomain(domainPath, label) {
+  if (!existsSync(join(domainPath, "index.ts"))) {
+    report(label, 'Missing required entrypoint "index.ts".');
+    return;
+  }
+
+  // A domain barrel states its surface with named exports. `export *` hides it.
+  const barrel = readFileSync(join(domainPath, "index.ts"), "utf8");
+  if (/^\s*export\s+\*\s+from/m.test(barrel)) {
+    report(
+      `${label}/index.ts`,
+      "A domain index.ts must use named exports, not `export *`: the surface has to be readable without opening every helper.",
+    );
+  }
+
+  const helpersPath = join(domainPath, "helpers");
+  if (!existsSync(helpersPath)) return;
+  if (!existsSync(join(helpersPath, "index.ts"))) {
+    report(`${label}/helpers`, 'Missing required barrel "helpers/index.ts".');
+  }
+  for (const file of readdirSync(helpersPath).filter((f) => f.endsWith(".ts"))) {
+    if (file === "index.ts") continue;
+    const lines = readFileSync(join(helpersPath, file), "utf8").split("\n");
     lines.forEach((line, index) => {
       const importsParentBarrel =
-        (line.includes("from '../index") || line.includes('from "../index')) &&
-        !line.trim().startsWith('//');
+        (line.includes('from "../index') || line.includes('from "../index')) &&
+        !line.trim().startsWith("//");
       if (importsParentBarrel) {
-        violations.push(
-          `${label}/helpers/${file}:${index + 1}: Prohibited circular import from the parent domain barrel.`
+        report(
+          `${label}/helpers/${file}:${index + 1}`,
+          "A helper must not import its parent domain barrel; that makes the barrel depend on its own helpers.",
         );
       }
     });
   }
 }
 
-/** A domain directory needs an index.ts and a helpers barrel when present. */
-function checkDomain(domainPath, name, label) {
-  if (!KEBAB_REGEX.test(name)) {
-    violations.push(`${label}: Domain name must be lowercase kebab-case (got "${name}").`);
-    return;
-  }
-  if (!existsSync(join(domainPath, 'index.ts'))) {
-    violations.push(`${label}: Missing required entrypoint "index.ts".`);
-  }
-  checkHelpers(domainPath, label);
+const checked = [];
+
+for (const relative_root of BACKEND_ROOTS) {
+  const path = join(root, relative_root);
+  if (checkRoot(path, relative_root)) checked.push(relative_root);
 }
 
-/**
- * A root holds either standalone domains (each with its own index.ts) or
- * libraries that contain domain subdirectories.
- */
-function checkRoot(rootPath, kind) {
-  const entries = readdirSync(rootPath, { withFileTypes: true }).filter((entry) => entry.isDirectory());
-  if (entries.length === 0) {
-    violations.push(`${kind}: Must contain at least one domain directory.`);
-    return;
-  }
-
-  const libraries = entries.filter((entry) => !existsSync(join(rootPath, entry.name, 'index.ts')));
-  const standalone = entries.filter((entry) => existsSync(join(rootPath, entry.name, 'index.ts')));
-
-  for (const entry of standalone) {
-    checkDomain(join(rootPath, entry.name), entry.name, `${kind}/${entry.name}`);
-  }
-
-  for (const library of libraries) {
-    if (!KEBAB_REGEX.test(library.name)) {
-      violations.push(`${kind}/${library.name}: Library name must be lowercase kebab-case (got "${library.name}").`);
-      continue;
-    }
-    const libraryPath = join(rootPath, library.name);
-    const domains = readdirSync(libraryPath, { withFileTypes: true }).filter((d) => d.isDirectory());
-    if (domains.length === 0) {
-      violations.push(`${kind}/${library.name}: Library directory must contain at least one domain subdirectory.`);
-      continue;
-    }
-    for (const domain of domains) {
-      checkDomain(join(libraryPath, domain.name), domain.name, `${kind}/${library.name}/${domain.name}`);
+// Every packages/<name>/src is a backend root by construction.
+const packagesDir = join(root, "packages");
+if (existsSync(packagesDir)) {
+  for (const entry of readdirSync(packagesDir, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !KEBAB.test(entry.name)) continue;
+    const srcDir = join(packagesDir, entry.name, "src");
+    if (existsSync(srcDir) && checkRoot(srcDir, `packages/${entry.name}/src`)) {
+      checked.push(`packages/${entry.name}/src`);
     }
   }
 }
 
-const checked = collectRoots();
 if (checked.length === 0) {
-  console.log('check-naming-conventions: No lib/ or packages/*/src found, skipping.');
+  console.log("check-naming-conventions: no backend roots found, skipping.");
   process.exit(0);
 }
 
-for (const entry of checked) checkRoot(entry.path, entry.kind);
-
 if (violations.length > 0) {
-  console.error('pre-push: FAIL — Naming convention violations detected:');
+  console.error(`pre-push: FAIL - ${violations.length} naming convention violation(s):`);
   for (const violation of violations) console.error(`  - ${violation}`);
-  console.error(
-    '\nPlease see docs/naming-conventions.md for the required {library}/{domainname} structure.'
-  );
+  console.error("\nSee docs/naming-conventions.md for the required backend structure.");
   process.exit(1);
 }
 
 console.log(
-  `pre-push: OK — ${checked.map((c) => c.kind).join(', ')} adhere to the {library}/{domainname} convention.`
+  `pre-push: OK - ${checked.join(", ")} follow the backend {library}/{domain} convention.`,
 );

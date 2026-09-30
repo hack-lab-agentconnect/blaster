@@ -1,139 +1,157 @@
-# Architecture and Naming Conventions
+# Naming conventions
 
-Internal modules use explicit library/domain boundaries. The checked source tree is the authority for this document.
+A convention that is only half-enforced is worse than none, because it teaches
+the reader to expect a structure that is not there. This document is the
+backend rule, and `scripts/check-naming-conventions.mjs` is the gate that keeps
+it true. If the two disagree, the gate is the bug.
 
-## Layout
+**Scope: backend only.** Every rule here applies to backend source — the API,
+the shared library, the CLI, and the MCP server. The frontend app is explicitly
+out of scope: a React tree is organised by screen and component, which is a
+different and perfectly good convention, and renaming it to satisfy a rule
+written for server modules would make it worse. See "Scope" below for exactly
+which directories are checked.
 
-```text
-lib/
-├── brand/                         # standalone brand domain
-├── convex/
-│   ├── agent/
-│   ├── agentmail/
-│   ├── telemetry/
-│   └── treg/
-├── firecrawl/
-│   └── crawl/
-├── nebius/
-│   └── rerank/
-├── typesafe/
-│   └── evaluator/
-└── xstate/
-    ├── competitor-discovery/
-    ├── enrichment/
-    └── prospect-evaluation/
-```
-
-A normal domain has this shape:
+## The shape
 
 ```text
-lib/{library}/{domainname}/
-├── helpers/
-│   ├── <pure-helper>.ts
-│   └── index.ts
-├── types.ts
-├── client.ts or machine.ts
-└── index.ts
+packages/{package}/src/{library}/{domain}/
+├── index.ts        # required. The domain's public surface, named exports.
+├── types.ts        # the domain's types, when it declares its own
+├── client.ts       # optional. The I/O boundary: fetch, SDK, database.
+├── machine.ts      # optional. A state machine.
+└── helpers/        # optional. Pure functions only.
+    ├── index.ts    # required whenever helpers/ exists.
+    └── *.ts        # kebab-case, pure, no I/O.
 ```
 
-`lib/brand` is the existing standalone-domain exception and has its own `index.ts` and helper barrel.
-
-## Application Packages
-
-Runnable tools live under `packages/{package}/src/` and follow the same domain shape, so a package is never a flat pile of scripts:
+`apps/api/src/` uses the same shape with a `lib/` level in front:
 
 ```text
-packages/{package}/
-├── bin/{entrypoint}    # thin wrapper: argv in, exit code out
-├── src/{domain}/
-│   ├── helpers/
-│   │   ├── <pure-helper>.ts
-│   │   └── index.ts
-│   ├── types.ts
-│   ├── <domain>.ts
-│   └── index.ts
-└── README.md
+apps/api/src/
+├── index.ts        # process entry: binds the port, nothing else
+└── lib/{library}/{domain}/...
 ```
 
-The same rules apply: helpers are pure, every `helpers/` directory has a barrel, helpers never import the parent barrel, and a domain root exposes named exports. `scripts/check-naming-conventions.mjs` enforces this for `lib/` and every `packages/*/src` root.
+Read it as **scope, then domain, then role**. `telnyx/messaging` is the messaging
+domain of the telnyx integration. `twenty/prospects` is the prospects domain of
+the twenty integration. A name tells you what it is and where it lives, and the
+same name means the same thing in every project.
 
-Shared domains belong in `packages/rank-core` so two tools cannot disagree. A package that needs the same behaviour as another imports the domain rather than copying it.
+## Why the roles are separated
 
-Environment variables and capabilities each have exactly one source of truth:
+Each file role answers one question, so a reader never has to open a file to
+find out what kind of thing it is:
 
-| File | Describes | Enforced by |
-|---|---|---|
-| `config/env-vars.json` | Every variable Rank reads, who consumes it, and what breaks without it | `pnpm check:surfaces` |
-| `config/capabilities.json` | Every capability and the CLI, HTTP, and tool surfaces exposing it | `pnpm check:surfaces` |
+| File | Holds | Never holds |
+| --- | --- | --- |
+| `index.ts` | The public surface, as named exports | Logic, I/O, anything a caller should not reach |
+| `types.ts` | The domain's types, when it declares its own | Implementations |
+| `client.ts` | Fetch calls, SDK calls, database access | Pure logic, business rules |
+| `helpers/*.ts` | Pure functions, unit-testable in isolation | I/O of any kind |
+| `machine.ts` | States, events, transitions | Side effects outside the machine |
 
-The CLI, the protocol server package, and the Convex HTTP routes are implemented separately and checked against those files. `check-surfaces.mjs` fails when a capability is missing a surface, when two capabilities share a CLI command, tool name, or route and method, when an advertised tool or command has no implementation, or when a `requiresEnv` name is not in the environment manifest. That check is catalog consistency by source inspection — shared names, not proven identical behavior. A surface marked `planned` with a recorded reason declares deferred intent and is skipped by the implementation-existence rules. Where a capability's scope differs by surface (for example `env.doctor`, which reads the linked deployment on the CLI but local sources only through the protocol server), the difference is recorded in the capability's summary.
+`types.ts` is the home for a domain's types, but it is not mandatory: a small
+domain whose types live naturally next to the one helper that owns them is fine.
+What matters is that the *barrel* names every type it exposes, so the type
+surface is as readable as the function surface.
 
-## Current Domain Registry
+The split that matters most is **pure helpers vs. `client.ts`**. A helper can be
+tested with no network and no credentials, which is why the business rules live
+there and why the tests are fast. The moment a helper needs to fetch something,
+it has crossed a boundary and belongs in a client.
 
-| Library | Domain | Responsibility | Primary exports |
-|---|---|---|---|
-| `brand` | standalone | Brand entity, sources, prompt and reply helpers | `BrandClient`, `buildBrandSystemPrompt`, `retrieveSourceRefs` |
-| `convex` | `agent` | Agent-facing client types and helpers | `ConvexAgentClient` |
-| `convex` | `agentmail` | Mail boundary types and helpers | `ConvexAgentMailDispatcher` |
-| `convex` | `telemetry` | Telemetry types and formatting | `ConvexTelemetryLogger` |
-| `convex` | `treg` | Treg client, failover, and spend helpers | `TregDomainClient` |
-| `firecrawl` | `crawl` | Firecrawl operation wrapper | `FirecrawlCrawlClient` |
-| `nebius` | `rerank` | Candidate reranking through the Nebius rerank endpoint, plus a local test baseline | `NebiusRerankClient`, `baselineRank`, `normalizeScores` |
-| `typesafe` | `evaluator` | Typed System One evaluation and prospect judgment | `TypeSafeEvaluator`, `noul`, `choice`, `score` |
-| `xstate` | `enrichment` | Brand enrichment machine | `brandEnrichmentMachine` |
-| `xstate` | `competitor-discovery` | Competitor discovery machine | `competitorDiscoveryMachine` |
-| `xstate` | `prospect-evaluation` | TypeSafe prospect decision machine | `prospectEvaluationMachine` |
+## Named exports, not wildcards
 
-### Package Domain Registry
-
-| Package | Domain | Responsibility | Primary exports |
-|---|---|---|---|
-| `rank-core` | `env` | Resolve the environment manifest against process, file, and deployment | `resolveEnv`, `buildReport`, `renderReport` |
-| `rank-core` | `workspace` | Filesystem access and typed views of the manifest and registry | `loadWorkspace`, `resolveRepoRoot` |
-| `rank-core` | `convex` | Convex CLI boundary for deployment variables | `readDeploymentEnv` |
-| `rank-core` | `capabilities` | Capability registry and consistency checks | `toolDefinitions`, `findGaps`, `renderRegistry` |
-| `rank-cli` | `cli` | Command registry, dispatcher, and usage text | `runCli`, `COMMANDS` |
-
-Each package documents its own domains in its README. Two tools share a surface by importing a `rank-core` domain, never by copying it.
-
-## Machine-First Contract
-
-Every file matching `lib/xstate/**/machine.ts` is a behavioral source of truth. A machine must provide:
-
-- A stable machine `id` and `version`.
-- Explicit states and typed events.
-- A colocated `machine.test.ts`.
-- A manifest entry in `docs/xstate/machine-manifest.json`.
-- A generated row in `docs/xstate/machines.md`.
-- A generated node in `docs/diagrams/machine-pipeline.mmd`.
-
-Run the generator after a machine change:
-
-```bash
-node scripts/check-machine-docs.mjs --write
+```ts
+// index.ts - the surface is readable without opening another file
+export { buildBreakdown, summarise } from "./helpers/build.ts";
+export type { Breakdown, Count } from "./types.ts";
 ```
 
-The pre-push hook runs the same check without write mode, so an undocumented or stale machine cannot pass the gate.
-
-## XState Version Contract
-
-The project uses `xstate@6.0.0-alpha.59` until a stable v6 package is published. Machine code uses v6 `setup()`, `types<T>()` schemas, inline transition functions, and shallow context patches. The authoritative upstream v6 references are fetched with `pnpm docs:xstate` into the ignored `docs/xstate/upstream/` directory.
-
-## Helper Rules
-
-- Helpers are pure and unit-testable.
-- Every helper directory has an explicit `helpers/index.ts` barrel.
-- Helpers do not import a parent domain barrel.
-- Domain roots expose named exports rather than wildcard mega-barrels.
-- External I/O stays in clients or Convex actions, not pure helpers or machine transitions.
-
-## Enforcement
-
-```bash
-pnpm check:machines
-pnpm check:docs
-pnpm check:naming
-pnpm check:surfaces
-pnpm typecheck:packages
-pnpm test:packages
+```ts
+// not this: the surface is now unknowable without reading every helper
+export * from "./helpers/build.ts";
 ```
+
+`export *` is how a domain's public API becomes invisible. With named exports
+the whole surface of a domain is one screen, which is the difference between
+finding the function you need and grepping for it. This is enforced: a domain
+`index.ts` containing `export *` fails the gate.
+
+`helpers/index.ts` may still use `export *`, because the domain root above it
+is the readable surface and the helpers beneath are an implementation detail.
+
+## Naming rules
+
+| Thing | Rule | Example |
+| --- | --- | --- |
+| Library directory | lowercase kebab-case | `telnyx`, `twenty`, `blaster` |
+| Domain directory | lowercase kebab-case | `messaging`, `phone-derived-state` |
+| Helper file | lowercase kebab-case | `phone-format.ts`, `build.ts` |
+| Library and domain names | single word where possible | `messaging`, not `message-handling` |
+
+Prefer singular domain names. `telnyx/messaging` is one domain; `telnyx/messages`
+reads like a collection of message files, which is what `helpers/` is for.
+
+## Rules the gate enforces
+
+1. Backend library and domain directories are lowercase kebab-case.
+2. Backend `.ts` file names are lowercase kebab-case.
+3. Every domain has an `index.ts`.
+4. Every `helpers/` directory has an `index.ts` barrel.
+5. No helper imports its parent domain's `index.ts`.
+6. A domain `index.ts` uses named exports, not `export *`.
+
+Each violation is reported as `path: reason` and fails the pre-push hook.
+
+## Exemptions
+
+| Path | Why |
+| --- | --- |
+| `**/generated/**` | Machine output, emitted by `pnpm twenty:client`. Its file names and exports are the generator's, not ours; editing them is pointless because the next run overwrites them. |
+| Frontend trees | Out of scope entirely; see "Scope". |
+| `convex/` | Not ours. The Convex framework fixes its own file names (`convex.config.ts` is required by name) and its function-module naming. It is out of scope rather than exempted, so the rule cannot creep into it. |
+
+Adding a path to the exemption list is a deliberate act with a reason in the
+gate, not a way to silence a failure.
+
+## Scope
+
+Checked:
+
+```text
+packages/*/src
+apps/api/src
+lib
+```
+
+Not checked:
+
+```text
+apps/web/src      # frontend: screens and components, organised by feature
+convex/           # the Convex framework's own tree, its file names are its own
+apps/*/test
+*.test.ts         # tests sit beside what they test
+```
+
+Adding a backend package to the gate is automatic: any directory matching
+`packages/*/src` is checked. Adding a new app means adding its path to
+`BACKEND_ROOTS` in the gate.
+
+## Working with it
+
+When adding a domain, create the whole shape rather than a bare directory:
+
+```text
+telnyx/webhook/
+├── index.ts      # export { verifyTelnyxWebhook } from "./helpers/verify.ts"
+├── types.ts      # export interface TelnyxWebhookEvent { ... }
+└── helpers/
+    ├── index.ts
+    └── verify.ts
+```
+
+A flat domain with no `types.ts` fails the gate, and that is the point: the
+question "where do I put this?" should have one answer, and it should be written
+down here rather than rediscovered per project.

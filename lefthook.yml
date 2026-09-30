@@ -15,8 +15,12 @@ pre-push:
     secrets-self-test:
       run: pnpm run check:secrets:self-test
 
+    # Backend structure: kebab-case names, a domain index.ts, a helpers
+    # barrel, and named exports so a domain's surface is readable. The glob
+    # covers every backend root the gate checks, so a structural change in
+    # apps/api or lib fails here rather than waiting for a later reader.
     naming:
-      glob: "packages/*/src/**/*.ts"
+      glob: "{packages/*/src/**/*.ts,apps/api/src/**/*.ts,lib/**/*.ts}"
       run: pnpm run check:naming
 
     env-manifest:
