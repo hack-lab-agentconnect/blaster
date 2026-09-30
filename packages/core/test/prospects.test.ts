@@ -52,12 +52,12 @@ describe("prospectFields", () => {
   test("operator labels line up with the tokens, and the registry is the source", () => {
     const fields = prospectFields();
     for (const field of fields) {
+      // prospectFields always supplies labels; this asserts they line up.
       expect(field.operatorLabels).toHaveLength(field.filterOperators.length);
-      // Every label is a real human word from the shared OPERATORS registry.
       for (let i = 0; i < field.filterOperators.length; i += 1) {
         const op = OPERATORS.find((entry) => entry.token === field.filterOperators[i]);
         expect(op, `operator ${field.filterOperators[i]}`).toBeDefined();
-        expect(field.operatorLabels[i]).toBe(op?.label);
+        expect(field.operatorLabels?.[i]).toBe(op?.label);
       }
     }
   });

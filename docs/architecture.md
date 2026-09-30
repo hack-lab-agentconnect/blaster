@@ -131,6 +131,13 @@ for the full decision, and
 [diagrams/send-message-sequence.mmd](diagrams/send-message-sequence.mmd) for one
 message end to end including the inbound webhook.
 
+A batch send to a filtered set of prospects is the same rule applied to many
+recipients at once: the pool comes from `agencyProspects`, eligibility is split
+before anything is sent, and every recipient gets its own outcome. The full
+intent, the four routes, and the response shape are in
+[send.md](send.md), with
+[diagrams/prospect-batch-send.mmd](diagrams/prospect-batch-send.mmd) for the run.
+
 ## Components
 
 | Component | Owns |

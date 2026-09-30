@@ -358,7 +358,7 @@ async function guidedSend(flags: CliFlags, json: boolean, root: string, seedText
         `Operator for ${field.label}?`,
         field.filterOperators.map((token, index) => ({
           value: token,
-          label: field.operatorLabels[index] ?? token,
+          label: field.operatorLabels?.[index] ?? token,
         })),
       );
       if (!operator) return abort("nothing was sent,");

@@ -9,6 +9,7 @@ naming gates:
 | --- | --- |
 | [architecture.md](architecture.md) | How the Hono and Convex runtimes split, the Twenty sharp edges, and the messaging profile rules |
 | [identity.md](identity.md) | Signing in with Twenty, the auth-guard wall, and which credential opens which path |
+| [send.md](send.md) | The prospect batch send: the intent, the four routes, the filter menu, and the per-recipient response shape |
 | [naming-conventions.md](naming-conventions.md) | The required `{library}/{domainname}/helpers` directory structure |
 
 **Vendored** documentation is third-party reference material, pulled in for the

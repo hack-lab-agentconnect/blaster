@@ -5,16 +5,17 @@
     "type": "module",
     "main": "./src/index.ts",
     "types": "./src/index.ts",
-  "exports": {
-    ".": "./src/index.ts",
-    "./twenty/oauth": "./src/twenty/oauth/index.ts",
-    "./twenty/api": "./src/twenty/api/index.ts",
-    "./twenty/api/generated": "./src/twenty/api/generated/index.ts"
-  },
+    "exports": {
+        ".": "./src/index.ts",
+        "./twenty/oauth": "./src/twenty/oauth/index.ts",
+        "./twenty/api": "./src/twenty/api/index.ts",
+        "./twenty/api/generated": "./src/twenty/api/generated/index.ts"
+    },
     "scripts": {
         "typecheck": "tsc --noEmit"
     },
     "dependencies": {
+        "areacodes": "^0.2.1",
         "libphonenumber-js": "^1.11.17",
         "telnyx": "^7.24.0",
         "xstate": "^5.33.2",

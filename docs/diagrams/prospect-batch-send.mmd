@@ -1,0 +1,58 @@
+%% Prospect batch send, one run end to end. The properties the route is pinned
+%% on: filters arrive as definitions (never raw DSL), the sending number is an
+%% id the server re-resolves, eligibility is split before anything leaves the
+%% machine, and every recipient gets its own outcome rather than one fake
+%% success. The lifecycle writes are best-effort: a send that lands but whose
+%% stage could not be updated is still reported as sent, with a warning.
+sequenceDiagram
+  autonumber
+  actor Op as Operator (CLI / MCP)
+  participant Gate as requireOperator
+  participant Route as POST /messages/batch-send
+  participant Menu as prospect filter menu
+  participant Twelve as Twenty agencyProspects
+  participant Num as agencyPhones
+  participant Core as telnyx/messaging
+  participant Tel as Telnyx API
+
+  Op->>Route: agencyPhoneId, filters, text, idempotencyKey
+  Route->>Gate: bearer token
+  Gate-->>Route: live operator (else 401)
+  Route->>Menu: validateProspectFilters(filters)
+  alt every clause is on the menu
+    Menu-->>Route: validated clauses, as one DSL expression
+  else a clause is not filterable
+    Menu-->>Op: 400, every problem named at once
+  end
+
+  Route->>Num: findAgencyPhoneRow(agencyPhoneId)
+  alt the id resolves and the number has a profile
+    Num-->>Route: phoneNumber + messagingProfileId
+  else unknown id, or no profile on the record
+    Num-->>Op: 404 / 409, nothing is sent
+  end
+
+  Route->>Twelve: walkProspectRows(DSL)
+  Twelve-->>Route: every matching row
+  Note over Route: more than MAX_BATCH_PROSPECTS<br/>is refused at the gate, 400
+
+  Route->>Route: splitEligibility(rows)
+  Note over Route: no E.164 phone, or a terminal<br/>outbound stage, is a skip with a reason
+
+  loop each eligible prospect
+    Route->>Core: resolveMessagingProfile(recipient)
+    Core-->>Route: bound profile, or a reason
+    Route->>Twelve: outboundState -> SENDING
+    Route->>Tel: POST /v2/messages
+    alt Telnyx accepts
+      Tel-->>Route: id + status
+      Route->>Twelve: outboundState -> AWAITING_DELIVERY
+      Note over Route: a send that lands but whose<br/>stage could not be updated is<br/>still "sent", with a warning
+    else the provider refuses
+      Tel-->>Route: error
+      Route->>Twelve: outboundState -> FAILED
+    end
+  end
+
+  Route-->>Op: { sent, skipped, failed, outcomes[] }
+  Note over Route,Op: outcomes is per-recipient,<br/>so a retry is safe to assess

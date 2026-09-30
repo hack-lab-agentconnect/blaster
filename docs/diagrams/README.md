@@ -12,6 +12,7 @@ and in [architecture.md](../architecture.md).
 | [breakdown-and-notifications.mmd](breakdown-and-notifications.mmd) | Twenty rows to counts to firing notifications, and the state key that stops a poller repeating an unchanged condition |
 | [data-model.mmd](data-model.mmd) | Where state lives: Twenty as the system of record, Convex holding only what Twenty cannot represent |
 | [send-message-sequence.mmd](send-message-sequence.mmd) | One message end to end, including the inbound webhook and the honest verification branch |
+| [prospect-batch-send.mmd](prospect-batch-send.mmd) | A prospect batch: filters as definitions, eligibility split before the send, a per-recipient outcome, and the best-effort lifecycle writes |
 | [deployment-and-gates.mmd](deployment-and-gates.mmd) | What ships to railcode.dev and Convex Cloud, and the pre-push gates in the order they run |
 
 ## Rendering
@@ -23,6 +24,7 @@ here rather than a second copy that can drift.
 ## Keeping them honest
 
 These describe code, so a diagram that no longer matches the code is a defect.
-The two places that most often drift are the profile resolution order and the
-set of tables in `convex/schema.ts`; both are pinned by tests, and a change to
-either should come with a change to the matching diagram.
+The places that most often drift are the profile resolution order, the
+outbound skip rules in the prospect batch, and the set of tables in
+`convex/schema.ts`; all are pinned by tests, and a change to either should
+come with a change to the matching diagram.

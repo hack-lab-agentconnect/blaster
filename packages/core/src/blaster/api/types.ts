@@ -126,13 +126,15 @@ export interface ProspectOperator {
  * 400, so a client cannot submit arbitrary Twenty query DSL.
  * `operatorLabels` is the human word for each token, in the same order, so
  * a prompt shows "equals" instead of "eq" without a second source of truth.
+ * It is optional: a server deployed before this field existed omits it, and
+ * a prompt must fall back to the token rather than assume it is present.
  */
 export interface ProspectField {
   name: string;
   label: string;
   type: "string" | "number" | "boolean" | "enum";
   filterOperators: string[];
-  operatorLabels: string[];
+  operatorLabels?: string[];
 }
 
 /**
