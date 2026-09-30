@@ -11,10 +11,15 @@
 import {
   BlasterApiError,
   classifyStatus,
+  type BatchSendResult,
   type ConversationMessageRow,
   type ConversationSummary,
   type ListConversationsQuery,
+  type ProspectField,
+  type ProspectFilter,
+  type ProspectSelection,
   type SendingNumber,
+  type SendPreview,
   type SendRequest,
   type SentMessage,
   type SendResolution,
@@ -39,6 +44,19 @@ export interface BlasterApiClient {
    * number or a profile of its own.
    */
   listSendingNumbers(): Promise<SendingNumber[]>;
+  /** The filterable prospect menu the guided send renders. */
+  listProspectFields(): Promise<ProspectField[]>;
+  /** One page of prospects matching caller-supplied filter definitions. */
+  searchProspects(input: { filters: ProspectFilter[]; cursor?: string | null; limit?: number }): Promise<ProspectSelection>;
+  /** What a batch would do, without sending anything. */
+  previewProspectSend(input: { agencyPhoneId: string; filters: ProspectFilter[]; text: string }): Promise<SendPreview>;
+  /** Send to every eligible prospect matching the filters. */
+  sendToProspects(input: {
+    agencyPhoneId: string;
+    filters: ProspectFilter[];
+    text: string;
+    idempotencyKey: string;
+  }): Promise<BatchSendResult>;
   /**
    * Hand a message to the provider.
    *
@@ -152,6 +170,39 @@ export function createBlasterApiClient(options: BlasterApiClientOptions): Blaste
     async listSendingNumbers() {
       const body = await get<{ phones: SendingNumber[] }>("/api/agency-phones", {});
       return body.phones;
+    },
+
+    /**
+     * The filterable prospect menu, then pages, previews, and batch sends
+     * against it. Filters travel to the server as definitions; the server
+     * validates them against its menu and queries Twenty, so a client never
+     * submits query DSL of its own and never fetches recipient lists as the
+     * authority for who gets messaged.
+     */
+    async listProspectFields() {
+      const body = await get<{ fields: ProspectField[] }>("/api/prospects/fields", {});
+      return body.fields;
+    },
+
+    async searchProspects(input: { filters: ProspectFilter[]; cursor?: string | null; limit?: number }) {
+      return post<ProspectSelection>("/api/prospects/search", {
+        filters: input.filters,
+        ...(input.cursor === undefined || input.cursor === null ? {} : { cursor: input.cursor }),
+        ...(input.limit === undefined ? {} : { limit: input.limit }),
+      });
+    },
+
+    async previewProspectSend(input: { agencyPhoneId: string; filters: ProspectFilter[]; text: string }) {
+      return post<SendPreview>("/api/messages/preview", input);
+    },
+
+    async sendToProspects(input: {
+      agencyPhoneId: string;
+      filters: ProspectFilter[];
+      text: string;
+      idempotencyKey: string;
+    }) {
+      return post<BatchSendResult>("/api/messages/batch-send", input);
     },
   };
 }

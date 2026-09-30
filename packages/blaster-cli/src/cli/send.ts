@@ -12,22 +12,26 @@
  * `agencyPhones` record, so this command cannot send from the wrong registration:
  * it never sees a profile id to get wrong.
  *
- * Scriptable, and prompt-free by default. A command that blocks on a prompt is
- * unusable from a pipeline, so the recipient and body are positional arguments
- * and a missing one is a message naming the shape rather than a hang. The
- * interactive prompts are kept for a bare `blaster send` at a terminal, where
- * they are a convenience rather than a trap.
+ * Two modes. A complete one-recipient invocation sends exactly one message and
+ * never prompts. Anything else at a terminal starts the guided flow: pick a
+ * sending number from the workspace, filter prospects from the Twenty schema,
+ * preview eligibility, confirm the exact send, and batch through the API with
+ * per-recipient outcomes. Pipelines use explicit batch flags plus `--yes` and
+ * never prompt; missing pieces there are an error naming the shape.
  */
 
 import {
   BlasterApiError,
   createBlasterApiClient,
+  type BatchSendResult,
   type BlasterApiClient,
+  type ProspectFilter,
   type SendResolution,
   type SentMessage,
 } from "@blaster/core";
-import { loadHome, type SessionRecord } from "./login.ts";
-import { abort, askText, begin, finish, isInteractive } from "./prompt.ts";
+import { randomUUID } from "node:crypto";
+import { ensureLiveSession, loadHome, loginMain, type SessionRecord } from "./login.ts";
+import { abort, askConfirm, askSelect, askText, begin, finish, isInteractive } from "./prompt.ts";
 import type { CliFlags } from "./inbox.ts";
 
 export const SEND_USAGE = `Usage: blaster send <to> [from] <text>
@@ -40,6 +44,15 @@ export const SEND_USAGE = `Usage: blaster send <to> [from] <text>
             in which case that number is used and Blaster says which.
   <text>    The message. Quote it so the shell keeps it as one argument.
 
+Batch mode (prospects, scripted):
+
+  blaster send --agency-phone-id <id> --filter '<json>' --text <string> --yes
+
+  --agency-phone-id  Sending number id, from the guided flow or the API
+  --filter           JSON array of {field, operator, value} clauses
+  --text             The message
+  --yes              Required: without it nothing sends
+
 Options
   --to <e164>       Same as the first positional
   --from <e164>     Same as the optional second positional
@@ -47,16 +60,10 @@ Options
   --api-url <url>   The API to send through, defaulting to the signed-in one
   --json            Machine-readable output
 
-Uses the operator session written by "blaster login". The profile is read from
-the sending number's record in Twenty; there is no way to pass one by hand.`;
-
-interface Prepared {
-  client: BlasterApiClient;
-  to: string;
-  from: string | undefined;
-  text: string;
-  prompted: boolean;
-}
+At a terminal with missing arguments, send starts the guided flow instead of
+prompting for one recipient. Uses the operator session written by
+"blaster login". The profile is read from the sending number's record in
+Twenty; there is no way to pass one by hand.`;
 
 /**
  * The API client for the operator's signed-in API.
@@ -148,43 +155,261 @@ export function parseSendArgs(
 }
 
 /**
- * Fill in whatever the arguments did not supply, or explain why it cannot.
- *
- * Only the interactive path prompts, so a pipeline gets an error naming the
- * missing argument instead of a hang waiting for input that will never come.
+ * Scripted batch arguments. All four are required together and nothing
+ * prompts: a pipeline missing any of them gets the usage, not a hang.
  */
-async function gather(
+interface BatchArgs {
+  agencyPhoneId?: string;
+  filtersRaw?: string;
+  text?: string;
+  yes: boolean;
+  any: boolean;
+}
+
+function readBatchArgs(flags: CliFlags): BatchArgs {
+  const text = (name: string): string | undefined => {
+    const value = flags.get(name);
+    return typeof value === "string" && value !== "" ? value : undefined;
+  };
+  const agencyPhoneId = text("agency-phone-id");
+  const filtersRaw = text("filter");
+  const batchText = text("text");
+  return {
+    agencyPhoneId,
+    filtersRaw,
+    text: batchText,
+    yes: flags.get("yes") === true,
+    any: agencyPhoneId !== undefined || filtersRaw !== undefined,
+  };
+}
+
+function parseFilterJson(raw: string): { filters?: ProspectFilter[]; error?: string } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { error: "--filter must be a JSON array of {field, operator, value} clauses" };
+  }
+  if (!Array.isArray(parsed)) return { error: "--filter must be a JSON array of {field, operator, value} clauses" };
+  return { filters: parsed as ProspectFilter[] };
+}
+
+function resolveApiUrlForSend(flags: CliFlags, root: string): string | null {
+  const explicit = flags.get("api-url");
+  if (typeof explicit === "string" && explicit !== "") return explicit;
+  const home = loadHome(root);
+  return home.config.apiUrl ?? Object.keys(home.sessions)[0] ?? null;
+}
+
+/**
+ * A live session, signing in first when a human is watching.
+ *
+ * Non-interactive callers never reach a browser: without a live session the
+ * answer is the sign-in error, not a hang. After an interactive login the
+ * session is re-read rather than trusted from before, because login is what
+ * just wrote it.
+ */
+async function liveSession(
   flags: CliFlags,
-  positional: string[],
   json: boolean,
   root: string,
-): Promise<Prepared | number> {
-  const { to: givenTo, from: givenFrom, text: givenText } = parseSendArgs(positional, flags);
-  let to = givenTo;
-  let from = givenFrom;
-  let text = givenText;
-
-  let prompted = false;
-  if (!to || !text) {
+): Promise<{ client: BlasterApiClient; apiUrl: string } | number> {
+  const apiUrl = resolveApiUrlForSend(flags, root);
+  if (!apiUrl) {
+    console.error('blaster send: no signed-in API. Run "blaster login" first, or pass --api-url.');
+    return 1;
+  }
+  let session = await ensureLiveSession(root, apiUrl);
+  if (!session) {
     if (!isInteractive(json)) {
-      console.error("blaster send: a recipient and a message are required\n" + SEND_USAGE);
+      console.error(`blaster send: no live session for ${apiUrl}. Run "blaster login" first.`);
       return 1;
     }
-    prompted = true;
-    begin("blaster send");
-    to = to ?? ((await askText("Recipient number?", { placeholder: "+15551234567" })) ?? undefined);
-    if (!to) return abort("nothing was sent,");
-    const typed = from ?? ((await askText("Sending number? (blank for the only number you own)")) ?? undefined);
-    // An empty answer is not a number, and is the documented way to say "use the
-    // one this workspace owns".
-    from = typed === "" ? undefined : typed;
-    text = text ?? ((await askText("Message text?")) ?? undefined);
-    if (!text) return abort("nothing was sent,");
+    const code = await loginMain(new Map([["api-url", apiUrl]]) as CliFlags, json, root);
+    if (code !== 0) return code;
+    session = await ensureLiveSession(root, apiUrl);
+    if (!session) {
+      console.error(`blaster send: no live session for ${apiUrl}. Run "blaster login" first.`);
+      return 1;
+    }
   }
+  return { client: createBlasterApiClient({ baseUrl: apiUrl, accessToken: session.accessToken }), apiUrl };
+}
 
+function formatBatch(result: BatchSendResult): string {
+  const lines = [
+    `Batch complete: ${result.sent} sent, ${result.skipped} skipped, ${result.failed} failed (from ${result.from})`,
+  ];
+  for (const outcome of result.outcomes) {
+    if (outcome.status === "sent") continue;
+    lines.push(`  ${outcome.status} ${outcome.phone ?? outcome.prospectId}: ${outcome.detail ?? "no detail"}`);
+  }
+  return lines.join("\n");
+}
+
+/** Scripted batch: every argument present, `--yes` set, zero prompts. */
+async function batchSendMain(
+  flags: CliFlags,
+  json: boolean,
+  root: string,
+  batch: BatchArgs,
+): Promise<number> {
+  if (!batch.agencyPhoneId || batch.filtersRaw === undefined || !batch.text || !batch.yes) {
+    console.error(
+      "blaster send: batch mode needs --agency-phone-id, --filter, --text, and --yes\n" + SEND_USAGE,
+    );
+    return 1;
+  }
+  const parsed = parseFilterJson(batch.filtersRaw);
+  if (!parsed.filters) {
+    console.error(`blaster send: ${parsed.error}\n${SEND_USAGE}`);
+    return 1;
+  }
+  const live = await liveSession(flags, json, root);
+  if (typeof live === "number") return live;
+  try {
+    const result = await live.client.sendToProspects({
+      agencyPhoneId: batch.agencyPhoneId,
+      filters: parsed.filters,
+      text: batch.text,
+      idempotencyKey: randomUUID(),
+    });
+    console.log(json ? asJson(result) : formatBatch(result));
+    return result.failed > 0 ? 1 : 0;
+  } catch (error) {
+    return report(error, json);
+  }
+}
+
+/** Complete one-recipient invocation: exactly one message, never a prompt. */
+async function oneShotSend(
+  flags: CliFlags,
+  json: boolean,
+  root: string,
+  single: { to: string; from?: string; text: string },
+): Promise<number> {
   const client = clientFromSession(flags, root);
   if (typeof client === "number") return client;
-  return { client, to, from, text, prompted };
+  try {
+    const { sent, resolution } = await client.sendMessage(
+      single.from ? { to: single.to, from: single.from, text: single.text } : { to: single.to, text: single.text },
+    );
+    console.log(json ? asJson({ sent, resolution }) : formatSend(sent, resolution));
+    return 0;
+  } catch (error) {
+    return report(error, json);
+  }
+}
+
+/**
+ * Guided send: number, filters, preview, confirm, batch. Only ever runs at
+ * an interactive terminal; every network failure reports through the same
+ * classifier the scripted paths use.
+ */
+async function guidedSend(flags: CliFlags, json: boolean, root: string, seedText?: string): Promise<number> {
+  const live = await liveSession(flags, json, root);
+  if (typeof live === "number") return live;
+  const { client, apiUrl } = live;
+  void apiUrl;
+  begin("blaster send");
+  try {
+    const numbers = await client.listSendingNumbers();
+    if (numbers.length === 0) {
+      console.error(
+        "blaster send: no sendable numbers. Set messagingProfileId on an agencyPhones record in Twenty first.",
+      );
+      return 1;
+    }
+    let agencyPhoneId: string;
+    let from: string;
+    const only = numbers.length === 1 ? numbers[0] : undefined;
+    if (only) {
+      agencyPhoneId = only.agencyPhoneId;
+      from = only.phoneNumber;
+      console.log(`Sending number: ${only.label}.`);
+    } else {
+      const picked = await askSelect(
+        "Sending number?",
+        numbers.map((row) => ({ value: row.agencyPhoneId, label: row.label })),
+      );
+      if (!picked) return abort("nothing was sent,");
+      const chosen = numbers.find((row) => row.agencyPhoneId === picked);
+      if (!chosen) return abort("nothing was sent,");
+      agencyPhoneId = chosen.agencyPhoneId;
+      from = chosen.phoneNumber;
+    }
+
+    const fields = await client.listProspectFields();
+    const filters: ProspectFilter[] = [];
+    for (let clause = 0; clause < 5; clause += 1) {
+      const fieldName = await askSelect("Filter prospects by?", [
+        { value: "__done", label: "Done — search with these filters" },
+        { value: "__all", label: "All prospects (no filter)" },
+        ...fields.map((field) => ({ value: field.name, label: field.label })),
+      ]);
+      if (!fieldName) return abort("nothing was sent,");
+      if (fieldName === "__done" || fieldName === "__all") break;
+      const field = fields.find((candidate) => candidate.name === fieldName);
+      if (!field) continue;
+      const operator = await askSelect(
+        `Operator for ${field.label}?`,
+        field.filterOperators.map((name) => ({ value: name, label: name })),
+      );
+      if (!operator) return abort("nothing was sent,");
+      const value = await askText(`Value for ${field.label}?`);
+      if (value === null) return abort("nothing was sent,");
+      filters.push({ field: field.name, operator, value });
+    }
+
+    let cursor: string | undefined;
+    let shown = 0;
+    let total = 0;
+    for (;;) {
+      const page = await client.searchProspects({ filters, cursor, limit: 20 });
+      total = page.total;
+      if (shown === 0) console.log(`${total} prospects match.`);
+      for (const prospect of page.prospects) {
+        console.log(`  ${prospect.name || "(unnamed)"} ${prospect.phone ?? "no phone"}`);
+      }
+      shown += page.prospects.length;
+      if (!page.nextCursor || shown >= total) break;
+      const more = await askConfirm(`Show more? (${shown} of ${total} shown)`, true);
+      if (more === null) return abort("nothing was sent,");
+      if (!more) break;
+      cursor = page.nextCursor;
+    }
+    if (total === 0) {
+      console.log("No prospects match those filters. Nothing to send.");
+      return 0;
+    }
+
+    const text = seedText ?? (await askText("Message text?"));
+    if (!text) return abort("nothing was sent,");
+
+    const preview = await client.previewProspectSend({ agencyPhoneId, filters, text });
+    console.log(`${preview.eligible} eligible, ${preview.skipped} skipped.`);
+    for (const prospect of preview.sample) {
+      console.log(`  ${prospect.name || "(unnamed)"} ${prospect.phone ?? "no phone"}`);
+    }
+    const confirmed = await askConfirm(`Send ${preview.eligible} messages from ${from}?`);
+    if (confirmed === null) return abort("nothing was sent,");
+    if (!confirmed) {
+      console.log("Not sent.");
+      return 0;
+    }
+
+    const result = await client.sendToProspects({
+      agencyPhoneId,
+      filters,
+      text,
+      idempotencyKey: randomUUID(),
+    });
+    console.log(formatBatch(result));
+    finish(`Sent ${result.sent} of ${result.total}.`);
+    return result.failed > 0 ? 1 : 0;
+  } catch (error) {
+    return report(error, json);
+  }
 }
 
 export function formatSend(sent: SentMessage, resolution: SendResolution): string {
@@ -205,15 +430,15 @@ export async function sendMain(
   json: boolean,
   root: string = process.cwd(),
 ): Promise<number> {
-  const prepared = await gather(flags, positional, json, root);
-  if (typeof prepared === "number") return prepared;
-  const { client, to, from, text, prompted } = prepared;
-  try {
-    const { sent, resolution } = await client.sendMessage(from ? { to, from, text } : { to, text });
-    console.log(json ? asJson({ sent, resolution }) : formatSend(sent, resolution));
-    if (prompted && !json) finish(`Sent ${sent.id}.`);
-    return 0;
-  } catch (error) {
-    return report(error, json);
+  const batch = readBatchArgs(flags);
+  if (batch.any) return await batchSendMain(flags, json, root, batch);
+  const single = parseSendArgs(positional, flags);
+  if (single.to !== undefined && single.text !== undefined) {
+    return await oneShotSend(flags, json, root, single as { to: string; from?: string; text: string });
   }
+  if (!isInteractive(json)) {
+    console.error("blaster send: a recipient and a message are required\n" + SEND_USAGE);
+    return 1;
+  }
+  return await guidedSend(flags, json, root, single.text);
 }

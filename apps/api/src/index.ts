@@ -23,20 +23,28 @@ import {
   createNumberOrder,
   describeEnv,
   evaluateEligibility,
+  filtersToDsl,
+  findAgencyPhoneRow,
   fromAgencyPhoneRecord,
   listAgencyPhones,
   listOwnedNumbers,
+  markProspectOutbound,
   missingRequired,
   normaliseCountry,
   planPhoneSync,
   profileBoundToNumber,
+  prospectFields,
   resolveMessagingProfile,
   searchAvailableNumbers,
+  searchProspectsPage,
+  splitEligibility,
   stepText,
   summarise,
   uncoveredCountries,
   upsertAgencyPhone,
   validateDraft,
+  validateProspectFilters,
+  walkProspectRows,
   type NumberFeature,
   type NumberType,
   type Recipient,
@@ -234,6 +242,227 @@ inbox.get("/agency-phones", requireOperator, async (c) => {
     return c.json({ count: phones.length, phones });
   } catch (error) {
     return fail(c, error, "Failed to list sending numbers", 502);
+  }
+});
+
+/**
+ * Prospect filter menu, exactly as the guided send renders it.
+ *
+ * The menu is grounded in the vendored generated Twenty schema
+ * (`AgencyProspectFilterInput`): names are field API names and operators are
+ * the REST-valid subset of each GraphQL filter kind. No Twenty call is
+ * needed, so this answers even when Twenty is unconfigured.
+ */
+inbox.get("/prospects/fields", requireOperator, (c) => {
+  return c.json({ fields: prospectFields() });
+});
+
+/** A batch larger than this is refused rather than started: a runaway filter
+ *  must fail at the gate, not after three hundred sends. */
+const MAX_BATCH_PROSPECTS = 500;
+
+inbox.post("/prospects/search", requireOperator, async (c) => {
+  const body = (await c.req.json().catch(() => null)) as {
+    filters?: unknown;
+    cursor?: unknown;
+    limit?: unknown;
+  } | null;
+  if (!body) return c.json({ error: "a JSON body is required" }, 400);
+  const validated = validateProspectFilters(body.filters);
+  if ("problems" in validated) {
+    return c.json({ error: "Invalid prospect filters", problems: validated.problems }, 400);
+  }
+  const limit = body.limit === undefined || body.limit === null ? undefined : Number(body.limit);
+  if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 200)) {
+    return c.json({ error: "limit must be an integer between 1 and 200" }, 400);
+  }
+  const cursor = typeof body.cursor === "string" && body.cursor !== "" ? body.cursor : undefined;
+  if (!process.env.TWENTY_BASE_URL || !process.env.TWENTY_API_KEY) {
+    return c.json({ total: 0, prospects: [], nextCursor: null });
+  }
+  try {
+    const page = await searchProspectsPage(twentyClient(), {
+      dsl: filtersToDsl(validated.filters),
+      cursor,
+      limit,
+    });
+    return c.json({ total: page.total, prospects: page.summaries, nextCursor: page.nextCursor });
+  } catch (error) {
+    if (error instanceof Error && error.name === "TwentyError" && (error as { status?: unknown }).status === 404) {
+      return c.json({ total: 0, prospects: [], nextCursor: null });
+    }
+    return fail(c, error, "Failed to search prospects", 502);
+  }
+});
+
+inbox.post("/messages/preview", requireOperator, async (c) => {
+  const body = (await c.req.json().catch(() => null)) as {
+    agencyPhoneId?: unknown;
+    filters?: unknown;
+    text?: unknown;
+  } | null;
+  if (!body) return c.json({ error: "a JSON body is required" }, 400);
+  if (typeof body.agencyPhoneId !== "string" || body.agencyPhoneId === "") {
+    return c.json({ error: "agencyPhoneId is required" }, 400);
+  }
+  const validated = validateProspectFilters(body.filters);
+  if ("problems" in validated) {
+    return c.json({ error: "Invalid prospect filters", problems: validated.problems }, 400);
+  }
+  if (typeof body.text !== "string" || body.text.trim() === "") {
+    return c.json({ error: "text is required" }, 400);
+  }
+  if (!process.env.TWENTY_BASE_URL || !process.env.TWENTY_API_KEY) {
+    return c.json({ total: 0, eligible: 0, skipped: 0, sample: [] });
+  }
+  try {
+    const client = twentyClient();
+    const found = findAgencyPhoneRow(await listAgencyPhones(client), body.agencyPhoneId);
+    if (!found) return c.json({ error: "Unknown sending number" }, 404);
+    const rows = await walkProspectRows(client, filtersToDsl(validated.filters));
+    const { eligible, skipped } = splitEligibility(rows);
+    return c.json({
+      total: rows.length,
+      eligible: eligible.length,
+      skipped: skipped.length,
+      sample: eligible.slice(0, 5),
+    });
+  } catch (error) {
+    return fail(c, error, "Failed to preview the send", 502);
+  }
+});
+
+inbox.post("/messages/batch-send", requireOperator, async (c) => {
+  const body = (await c.req.json().catch(() => null)) as {
+    agencyPhoneId?: unknown;
+    filters?: unknown;
+    text?: unknown;
+    idempotencyKey?: unknown;
+  } | null;
+  if (!body) return c.json({ error: "a JSON body is required" }, 400);
+  if (typeof body.agencyPhoneId !== "string" || body.agencyPhoneId === "") {
+    return c.json({ error: "agencyPhoneId is required" }, 400);
+  }
+  const validated = validateProspectFilters(body.filters);
+  if ("problems" in validated) {
+    return c.json({ error: "Invalid prospect filters", problems: validated.problems }, 400);
+  }
+  if (typeof body.text !== "string" || body.text.trim() === "") {
+    return c.json({ error: "text is required" }, 400);
+  }
+  if (typeof body.idempotencyKey !== "string" || body.idempotencyKey === "") {
+    return c.json({ error: "idempotencyKey is required" }, 400);
+  }
+  // Accepted, required, and echoed below as the run correlator: the operator
+  // matches a run to its outcomes by it. There is no server dedup store, so
+  // a retried key re-reports rather than suppresses; per-recipient outcomes
+  // are what make a retry safe to assess.
+  const idempotencyKey: string = body.idempotencyKey;
+  const text: string = body.text;
+  if (!process.env.TWENTY_BASE_URL || !process.env.TWENTY_API_KEY) {
+    return c.json({ error: "Twenty is not configured" }, 503);
+  }
+  const apiKey = process.env.TELNYX_API_KEY;
+  if (!apiKey) return c.json({ error: "TELNYX_API_KEY is not configured" }, 500);
+  try {
+    const client = twentyClient();
+    const found = findAgencyPhoneRow(await listAgencyPhones(client), body.agencyPhoneId);
+    if (!found) return c.json({ error: "Unknown sending number" }, 404);
+    if (!found.messagingProfileId) {
+      return c.json(
+        {
+          error: `${found.phoneNumber} has no messaging profile in Twenty`,
+          detail:
+            "Set messagingProfileId on the number's agencyPhones record. Blaster does not fall back to a global profile, because the wrong one is rejected by the carrier after acceptance.",
+        },
+        409,
+      );
+    }
+    const from = found.phoneNumber;
+    const numberProfileId: string = found.messagingProfileId;
+    const rows = await walkProspectRows(client, filtersToDsl(validated.filters));
+    if (rows.length > MAX_BATCH_PROSPECTS) {
+      return c.json(
+        { error: `Batch too large: ${rows.length} prospects match, the limit is ${MAX_BATCH_PROSPECTS}` },
+        400,
+      );
+    }
+    const { eligible, skipped } = splitEligibility(rows);
+    const outcomes: Array<{
+      prospectId: string;
+      phone: string | null;
+      status: "sent" | "skipped" | "failed";
+      detail?: string | null;
+      telnyxId?: string | null;
+    }> = skipped.map(({ summary, reason }) => ({
+      prospectId: summary.id,
+      phone: summary.phone,
+      status: "skipped" as const,
+      detail: reason,
+    }));
+    let sent = 0;
+    let failed = 0;
+    for (const summary of eligible) {
+      const to = summary.phone as string;
+      const resolution = resolveMessagingProfile(process.env, { to, numberProfileId });
+      if (!resolution.profileId) {
+        outcomes.push({ prospectId: summary.id, phone: to, status: "failed", detail: "No messaging profile is configured" });
+        failed += 1;
+        continue;
+      }
+      try {
+        await markProspectOutbound(client, summary.id, "SENDING");
+      } catch {
+        outcomes.push({ prospectId: summary.id, phone: to, status: "failed", detail: "Could not mark the prospect as sending" });
+        failed += 1;
+        continue;
+      }
+      try {
+        const sentMessage = await sendMessage({
+          apiKey,
+          from,
+          to,
+          text,
+          messagingProfileId: resolution.profileId,
+        });
+        try {
+          await markProspectOutbound(client, summary.id, "AWAITING_DELIVERY");
+        } catch {
+          outcomes.push({
+            prospectId: summary.id,
+            phone: to,
+            status: "sent",
+            detail: "Sent, but the prospect stage could not be updated",
+            telnyxId: sentMessage.id,
+          });
+          sent += 1;
+          continue;
+        }
+        outcomes.push({ prospectId: summary.id, phone: to, status: "sent", telnyxId: sentMessage.id });
+        sent += 1;
+      } catch (error) {
+        const detail = error instanceof TelnyxError ? error.message : error instanceof Error ? error.message : String(error);
+        try {
+          await markProspectOutbound(client, summary.id, "FAILED");
+        } catch {
+          // Already failing; the send error is the one that matters.
+        }
+        outcomes.push({ prospectId: summary.id, phone: to, status: "failed", detail });
+        failed += 1;
+      }
+    }
+    return c.json({
+      agencyPhoneId: body.agencyPhoneId,
+      from,
+      idempotencyKey,
+      total: rows.length,
+      sent,
+      skipped: skipped.length,
+      failed,
+      outcomes,
+    });
+  } catch (error) {
+    return fail(c, error, "Failed to run the batch send", 502);
   }
 });
 

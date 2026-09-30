@@ -78,3 +78,59 @@ describe("listSendingNumbers", () => {
     expect((error as BlasterApiError).kind).toBe("server");
   });
 });
+
+describe("prospect selection contract", () => {
+  const clientFor = (handler: (seen: Seen) => Response) =>
+    createBlasterApiClient({
+      baseUrl: "https://blaster.example",
+      accessToken: "at-operator",
+      fetchFn: stubFetch(handler),
+    });
+
+  test("lists the filter menu with bearer auth", async () => {
+    const seen: { current: Seen | null } = { current: null };
+    const client = clientFor((s) => {
+      seen.current = s;
+      return json({ fields: [{ name: "niche", label: "Industry", type: "string", filterOperators: ["eq"] }] });
+    });
+    await expect(client.listProspectFields()).resolves.toEqual([
+      { name: "niche", label: "Industry", type: "string", filterOperators: ["eq"] },
+    ]);
+    expect(seen.current?.url).toBe("https://blaster.example/api/prospects/fields");
+  });
+
+  test("search posts filter definitions, never query DSL", async () => {
+    let body: unknown = null;
+    const client = clientFor((s) => {
+      body = JSON.parse((s.init.body as string) ?? "{}");
+      return json({ total: 0, prospects: [], nextCursor: null });
+    });
+    const filters = [{ field: "niche", operator: "eq", value: "plumbing" }];
+    await client.searchProspects({ filters, limit: 20 });
+    expect(body).toEqual({ filters, limit: 20 });
+  });
+
+  test("preview posts the number id, filters, and text", async () => {
+    const seen: { current: Seen | null } = { current: null };
+    const client = clientFor((s) => {
+      seen.current = s;
+      return json({ total: 2, eligible: 1, skipped: 1, sample: [] });
+    });
+    const input = { agencyPhoneId: "rec-1", filters: [], text: "hi" };
+    await expect(client.previewProspectSend(input)).resolves.toEqual({ total: 2, eligible: 1, skipped: 1, sample: [] });
+    expect(seen.current?.url).toBe("https://blaster.example/api/messages/preview");
+    expect(JSON.parse((seen.current?.init.body as string) ?? "{}")).toEqual(input);
+  });
+
+  test("batch send posts the idempotency key with the definitions", async () => {
+    let body: unknown = null;
+    const client = clientFor((s) => {
+      body = JSON.parse((s.init.body as string) ?? "{}");
+      return json({ agencyPhoneId: "rec-1", from: "+1", idempotencyKey: "k", total: 0, sent: 0, skipped: 0, failed: 0, outcomes: [] });
+    });
+    const input = { agencyPhoneId: "rec-1", filters: [], text: "hi", idempotencyKey: "key-1" };
+    const result = await client.sendToProspects(input);
+    expect(body).toEqual(input);
+    expect(result.failed).toBe(0);
+  });
+});

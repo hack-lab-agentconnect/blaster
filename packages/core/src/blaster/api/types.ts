@@ -104,6 +104,71 @@ export interface SendingNumber {
 }
 
 /**
+ * One filterable prospect field, exactly as `GET /api/prospects/fields`
+ * returns it. Names are Twenty field API names, never display labels, and
+ * `filterOperators` is the complete menu: anything else is a 400, so a
+ * client cannot submit arbitrary Twenty query DSL.
+ */
+export interface ProspectField {
+  name: string;
+  label: string;
+  type: "string" | "number" | "boolean" | "enum";
+  filterOperators: string[];
+}
+
+/** One filter clause. Values arrive as strings from the CLI and are coerced server-side. */
+export interface ProspectFilter {
+  field: string;
+  operator: string;
+  value?: string | string[] | boolean | number;
+}
+
+/** One prospect row, exactly as search and preview return it. */
+export interface ProspectSummary {
+  id: string;
+  name: string;
+  phone: string | null;
+  country: string | null;
+  campaign: string | null;
+}
+
+/** One page of a prospect search. */
+export interface ProspectSelection {
+  total: number;
+  prospects: ProspectSummary[];
+  nextCursor: string | null;
+}
+
+/** What a batch would do, without sending anything. */
+export interface SendPreview {
+  total: number;
+  eligible: number;
+  skipped: number;
+  sample: ProspectSummary[];
+}
+
+/** One recipient's outcome inside a batch. Never a bare boolean. */
+export interface RecipientOutcome {
+  prospectId: string;
+  phone: string | null;
+  status: "sent" | "skipped" | "failed";
+  detail?: string | null;
+  telnyxId?: string | null;
+}
+
+/** The whole of a batch send: every recipient accounted for. */
+export interface BatchSendResult {
+  agencyPhoneId: string;
+  from: string;
+  idempotencyKey: string;
+  total: number;
+  sent: number;
+  skipped: number;
+  failed: number;
+  outcomes: RecipientOutcome[];
+}
+
+/**
  * A failure the caller can act on. `unauthorized` is separated from the rest
  * because it has exactly one remedy: sign in again.
  */

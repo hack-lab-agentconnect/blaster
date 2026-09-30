@@ -752,6 +752,20 @@ async function liveAccessToken(
   return { ok: true, record: next };
 }
 
+/**
+ * Resolve a stored session to a live one, refreshing once when the stored
+ * token is expired. Null when the operator must sign in again: no session,
+ * no refresh token, or a refresh the API rejects. Unlike `liveAccessToken`
+ * this returns the session itself (or null) instead of an explanatory
+ * message, for callers that decide what to do next themselves.
+ */
+export async function ensureLiveSession(root: string, apiUrl: string): Promise<SessionRecord | null> {
+  const record = loadHome(root).sessions[apiUrl];
+  if (!record) return null;
+  const live = await liveAccessToken(root, record);
+  return live.ok ? live.record : null;
+}
+
 export async function whoamiMain(
   flags: Map<string, string | boolean>,
   json: boolean,
