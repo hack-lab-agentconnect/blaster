@@ -28,7 +28,7 @@ import {
   type SessionConfig as HomeConfig,
   type SessionRecord,
 } from "@blaster/core";
-import { spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import http from "node:http";
 import {
   codeChallengeForVerifier,
@@ -404,13 +404,41 @@ function openBrowser(url: string): boolean {
   // the URL instead. (The builder percent-encodes the query, so a quote can
   // only arrive in a hand-passed --web-url, which the validator rejects.)
   if (url.includes("'")) return false;
-  try {
-    const { command, args } = buildBrowserCommand(url, process.platform);
-    const child = spawn(command, args, { stdio: "ignore", detached: true, windowsHide: true });
-    child.unref();
-    return true;
-  } catch {
+  const primary = buildBrowserCommand(url, process.platform);
+  const first = tryOpen(primary.command, primary.args);
+  if (first === null) return true;
+  if (process.platform === "win32") {
+    // PowerShell can be missing, constrained, or otherwise unable; rundll32
+    // hands the URL straight to ShellExecute with no script layer at all.
+    // The URL carries no spaces, so no argv entry ever needs quoting.
+    const fallback = tryOpen("rundll32", ["url.dll,FileProtocolHandler", url]);
+    if (fallback === null) return true;
+    console.error(`blaster login: browser launch failed (${first}; fallback: ${fallback})`);
     return false;
+  }
+  console.error(`blaster login: browser launch failed (${first})`);
+  return false;
+}
+
+/**
+ * Run an opener and wait for it, returning null on success or a short
+ * failure detail. Fire-and-forget (detached, ignored stdio) made a dead
+ * launch indistinguishable from a slow one: the terminal waited out the
+ * timeout with no tab and no reason. A checked launch costs a second or two
+ * against a thirty-second wait and every path ends in either an open tab or
+ * an explanation plus the manual URL.
+ */
+function tryOpen(command: string, args: string[], timeoutMs = 15000): string | null {
+  try {
+    execFileSync(command, args, { stdio: ["ignore", "pipe", "pipe"], timeout: timeoutMs, windowsHide: true });
+    return null;
+  } catch (error) {
+    const detail = error as { stderr?: unknown; message?: unknown };
+    const text =
+      typeof detail.stderr === "string" && detail.stderr.trim() !== ""
+        ? (detail.stderr.trim().split("\n", 1)[0] ?? detail.stderr.trim())
+        : String(detail.message ?? error);
+    return text.slice(0, 300);
   }
 }
 

@@ -2,6 +2,12 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "pnpm --filter @blaster/web build && node scripts/build-api-function.mjs",
   "outputDirectory": "apps/web/dist",
+  // Git-push auto-deploys are OFF until the build emits the API function
+  // deterministically on infra builders: every auto-deployed build has
+  // shipped without /api/* (edge NOT_FOUND) while CLI deploys of the same
+  // tree serve them, so pushes must not move the production alias.
+  // Deploy explicitly with `npx vercel --prod`, then re-enable this.
+  "git": { "deploymentEnabled": false },
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/handler" },
     { "source": "/health", "destination": "/api/handler" },
