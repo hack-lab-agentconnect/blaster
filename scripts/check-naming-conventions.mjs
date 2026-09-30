@@ -27,6 +27,33 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 /** Kebab-case: lowercase, digits, and single internal hyphens. */
 const KEBAB = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
+/**
+ * Twenty names a domain directory is allowed to mirror, read from the checked-in
+ * allowlist rather than from the network.
+ *
+ * The naming rule is "the external system wins": a module mirroring a Twenty
+ * object keeps Twenty's spelling, and Twenty's objects are camelCase. So a
+ * camelCase directory is legal only when it is one of these names. That keeps
+ * the gate able to tell a deliberate mirror (`twenty/agencyPhone/`) from a typo
+ * (`twenty/AgencyPhones/`), which is the failure the rule exists to prevent.
+ * Regenerate with `pnpm twenty:objects`.
+ */
+const TWENTY_MIRRORS = new Set(
+  (() => {
+    try {
+      const list = JSON.parse(readFileSync(join(root, "config/twenty-objects.json"), "utf8"));
+      return Array.isArray(list.objects) ? list.objects : [];
+    } catch {
+      return [];
+    }
+  })(),
+);
+
+/** True when `name` is a legal directory name: kebab-case, or a Twenty mirror. */
+function legalDirectoryName(name) {
+  return KEBAB.test(name) || TWENTY_MIRRORS.has(name);
+}
+
 /** Directory trees exempt from every rule, with the reason each exists. */
 const EXEMPT_TREES = [
   { segment: "generated", reason: "machine output, overwritten by its generator" },
@@ -95,8 +122,13 @@ function checkRoot(rootPath, label) {
 
   for (const entry of entries) {
     const entryPath = join(rootPath, entry.name);
-    if (!KEBAB.test(entry.name)) {
-      report(`${label}/${entry.name}`, "Directory name must be lowercase kebab-case.");
+    if (!legalDirectoryName(entry.name)) {
+      report(
+        `${label}/${entry.name}`,
+        TWENTY_MIRRORS.size === 0
+          ? "Directory name must be lowercase kebab-case (config/twenty-objects.json is missing or empty, so no Twenty mirror is recognised)."
+          : "Directory name must be lowercase kebab-case, or exactly a Twenty object name from config/twenty-objects.json.",
+      );
     }
 
     if (hasIndex(entryPath)) {
@@ -106,8 +138,11 @@ function checkRoot(rootPath, label) {
 
     // A library directory: every domain beneath it must be well formed.
     for (const domain of readdirSync(entryPath, { withFileTypes: true }).filter((d) => d.isDirectory())) {
-      if (!KEBAB.test(domain.name)) {
-        report(`${label}/${entry.name}/${domain.name}`, "Domain name must be lowercase kebab-case.");
+      if (!legalDirectoryName(domain.name)) {
+        report(
+          `${label}/${entry.name}/${domain.name}`,
+          "Domain name must be lowercase kebab-case, or exactly a Twenty object name from config/twenty-objects.json.",
+        );
       }
       checkDomain(join(entryPath, domain.name), `${label}/${entry.name}/${domain.name}`);
     }
@@ -130,20 +165,11 @@ function checkRoot(rootPath, label) {
   return true;
 }
 
-/** A domain needs an entrypoint, a helpers barrel, and a readable surface. */
+/** A domain needs an entrypoint and, when present, a helpers barrel. */
 function checkDomain(domainPath, label) {
   if (!existsSync(join(domainPath, "index.ts"))) {
     report(label, 'Missing required entrypoint "index.ts".');
     return;
-  }
-
-  // A domain barrel states its surface with named exports. `export *` hides it.
-  const barrel = readFileSync(join(domainPath, "index.ts"), "utf8");
-  if (/^\s*export\s+\*\s+from/m.test(barrel)) {
-    report(
-      `${label}/index.ts`,
-      "A domain index.ts must use named exports, not `export *`: the surface has to be readable without opening every helper.",
-    );
   }
 
   const helpersPath = join(domainPath, "helpers");

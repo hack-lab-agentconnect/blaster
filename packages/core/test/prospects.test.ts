@@ -23,7 +23,7 @@ import {
   summarizeProspect,
   validateProspectFilters,
   walkProspectRows,
-} from "../src/twenty/prospects/index.ts";
+} from "../src/twenty/agencyProspect/index.ts";
 import type { TwentyClient, TwentyRecord } from "../src/twenty/crm/helpers/client.ts";
 
 const record = (overrides: Record<string, unknown> = {}): TwentyRecord => ({

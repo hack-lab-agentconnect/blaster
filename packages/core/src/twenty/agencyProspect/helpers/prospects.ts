@@ -26,7 +26,7 @@ import {
   type TwentyClient,
   type TwentyRecord,
 } from "../../crm/helpers/client.ts";
-import { fromAgencyPhoneRecord } from "../../phones/helpers/phones.ts";
+import { fromAgencyPhoneRecord } from "../../agencyPhone/helpers/phones.ts";
 export const AGENCY_PROSPECTS_OBJECT = "agencyProspects";
 
 /** E.164, the only phone shape Telnyx accepts. */

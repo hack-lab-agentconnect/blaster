@@ -303,16 +303,6 @@ export class TwentyClient {
     }
     return json.data as T;
   }
-
-  /** Whether a custom object exists in this workspace. */
-  async hasObject(nameSingular: string): Promise<boolean> {
-    const data = await this.graphql<{
-      objects: { edges: Array<{ node: { nameSingular: string; namePlural: string } }> };
-    }>(`query { objects(paging: { first: 200 }) { edges { node { id nameSingular namePlural } } } }`);
-    return data.objects.edges.some(
-      (edge) => edge.node.nameSingular === nameSingular || edge.node.namePlural === nameSingular,
-    );
-  }
 }
 
 /** Combine a caller filter with a keyset cursor, since the cursor replaces it. */

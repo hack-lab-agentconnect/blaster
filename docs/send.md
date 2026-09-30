@@ -33,7 +33,7 @@ common path honest and repeatable:
 
 Both sit on the gated `inbox` Hono app (mounted at `/api`), so they require a
 live operator token, and both read `agencyProspects` through the shared
-`twenty/prospects` helpers.
+`twenty/agencyProspect` helpers.
 
 | Route | Purpose |
 | --- | --- |
@@ -45,7 +45,7 @@ live operator token, and both read `agencyProspects` through the shared
 ### The filter menu is the source of truth
 
 `GET /api/prospects/fields` answers without calling Twenty: it is the shared
-`OPERATORS` registry plus the field menu in `twenty/prospects`, grounded in the
+`OPERATORS` registry plus the field menu in `twenty/agencyProspect`, grounded in the
 generated `agencyProspects` schema. Each field carries `filterOperators` (the
 DSL tokens) and `operatorLabels` (the plain word for each token, in the same
 order). A client that shows "equals" instead of "eq" is reading this route, not
@@ -136,7 +136,7 @@ by what.
 
 | Concern | File |
 | --- | --- |
-| Operator registry and field menu | `packages/core/src/twenty/prospects/helpers/prospects.ts` |
+| Operator registry and field menu | `packages/core/src/twenty/agencyProspect/helpers/prospects.ts` |
 | Shared types (`ProspectField`, `ProspectFilter`, `BatchSendResult`, ...) | `packages/core/src/blaster/api/types.ts` |
 | Client methods (`listProspectFields`, `searchProspects`, `previewProspectSend`, `sendToProspects`) | `packages/core/src/blaster/api/helpers/client.ts` |
 | The four routes | `apps/api/src/index.ts` (the `inbox` app) |

@@ -42,7 +42,9 @@ deployment exists, rather than failing closed on a missing backend.
 ```
 packages/core/src/
   twenty/crm/            Twenty REST client, envelope unwrapping, keyset paging
-  twenty/phones/         agencyPhones mapping and Twenty/Convex sync planning
+  twenty/agencyPhone/    agencyPhones mapping and Twenty/Convex sync planning
+  twenty/agencyProspect/ agencyProspects: the filter menu, validation, and batch eligibility
+  twenty/objectService/  Twenty's object metadata (`/metadata`); mirrors Twenty's own name
   twenty/oauth/          Twenty OAuth2 (discovery, PKCE, token exchange/refresh, introspection)
   twenty/api/            Session-bound GraphQL client (OAuth tokens with refresh);
                          reads the generated client emitted by `pnpm twenty:client`

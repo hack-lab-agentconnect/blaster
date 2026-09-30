@@ -7,8 +7,9 @@
 
 export * from "./blaster/api/index.ts";
 export * from "./twenty/crm/index.ts";
-export * from "./twenty/phones/index.ts";
-export * from "./twenty/prospects/index.ts";
+export * from "./twenty/agencyPhone/index.ts";
+export * from "./twenty/agencyProspect/index.ts";
+export * from "./twenty/objectService/index.ts";
 export * from "./twenty/oauth/index.ts";
 export * from "./twenty/api/index.ts";
 export * from "./telnyx/messaging/index.ts";

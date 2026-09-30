@@ -8,7 +8,7 @@ import {
   fromAgencyPhoneRecord,
   planPhoneSync,
   toAgencyPhoneRecord,
-} from "../src/twenty/phones/helpers/phones.ts";
+} from "../src/twenty/agencyPhone/helpers/phones.ts";
 
 describe("buildAvailableNumbersQuery", () => {
   test("encodes filters as filter[...] params", () => {
