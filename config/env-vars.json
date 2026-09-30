@@ -186,7 +186,7 @@
       "consumedBy": ["packages/blaster-cli/src/cli/login.ts"],
       "required": false,
       "secret": false,
-      "description": "Origin of the Blaster web app. `blaster login` opens its /login page there. Defaults to http://localhost:5173."
+      "description": "Origin of the Blaster web app. `blaster login` opens its /login page there. Defaults to the hosted app (https://blaster-web-nine.vercel.app); pass a localhost URL for local development."
     }
   ]
 }

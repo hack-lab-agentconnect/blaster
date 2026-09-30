@@ -45,8 +45,14 @@ export const LOGIN_USAGE = `Usage: blaster login [--web-url <url>] [--api-url <u
 export const LOGOUT_USAGE = "Usage: blaster logout [--api-url <url>] [--json]";
 export const WHOAMI_USAGE = "Usage: blaster whoami [--api-url <url>] [--json]";
 
-const DEFAULT_WEB_URL = "http://localhost:5173";
-const DEFAULT_API_URL = "http://localhost:4180";
+/**
+ * Production-first defaults: the hosted service is the ordinary path and a
+ * laptop dev server is the override (flags, BLASTER_*_URL, or
+ * .blaster/config.json). Keep these on the production domain; local work
+ * passes --web-url/--api-url explicitly.
+ */
+const DEFAULT_WEB_URL = "https://blaster-web-nine.vercel.app";
+const DEFAULT_API_URL = "https://blaster-web-nine.vercel.app";
 /**
  * How long the loopback exchange waits before giving up.
  *
@@ -175,13 +181,21 @@ export async function checkCliHandoff(webUrl: string, fetchFn: typeof fetch = fe
   }
   const body = await response.text().catch(() => "");
   if (HANDOFF_MARKER.test(body)) return { ok: true };
-  const port = new URL(webUrl).port;
+  const parsed = new URL(webUrl);
+  const base = `${webUrl} is serving something that is not the Blaster web app, so sign-in there will not hand a session to this terminal.`;
+  if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") {
+    const port = parsed.port || "80";
+    return {
+      ok: false,
+      message:
+        `${base}\n` +
+        `Twenty's redirect URI is registered as http://localhost:${port}/callback, so a local Blaster web app has to own port ${port}.\n` +
+        "Another dev server is holding it. Stop that one, start \"pnpm --filter @blaster/web dev\", then run blaster login again.",
+    };
+  }
   return {
     ok: false,
-    message:
-      `${webUrl} is serving something that is not the Blaster web app, so sign-in there will not hand a session to this terminal.\n` +
-      `Twenty's redirect URI is registered as http://localhost:${port || "80"}/callback, which means the Blaster web app has to own port ${port || "80"}.\n` +
-      "Another dev server is holding it. Stop that one, start \"pnpm --filter @blaster/web dev\", then run blaster login again.",
+    message: `${base} Check --web-url (which defaults to the hosted app) and try again.`,
   };
 }
 
@@ -542,11 +556,10 @@ export async function loginMain(
 
     // Check the web app is really ours before sending an operator to a browser.
     //
-    // Twenty's registered redirect URI is http://localhost:5173/callback, so this
-    // app has to own port 5173. Anything else on that port answers /login with its
-    // own home page, and the operator is then dropped into an unrelated app,
-    // signs in there, and is told only that the exchange did not work. Failing
-    // here names the cause instead.
+    // The URL may be the hosted app or a local dev server, and a wrong one
+    // answers /login with a working page of its own: an operator is dropped
+    // into an unrelated app, signs in there, and is told only that the
+    // exchange did not work. Failing here names the cause instead.
     const handoff = await checkCliHandoff(webUrl);
     if (!handoff.ok) {
       exchange.close();

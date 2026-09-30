@@ -96,7 +96,7 @@ TWENTY_API_KEY=...                    # bearer, for /rest and /graphql
 
 TWENTY_OAUTH_CLIENT_ID=...            # public PKCE client, no secret needed
 TWENTY_OAUTH_CLIENT_SECRET=           # unset for a public client
-TWENTY_OAUTH_REDIRECT_URI=http://localhost:5173/callback
+TWENTY_OAUTH_REDIRECT_URI=https://blaster-web-nine.vercel.app/callback
 TWENTY_OAUTH_SCOPE=api profile
 
 # Only when an auth-guard fronts the instance:
@@ -104,11 +104,17 @@ TWENTY_BASIC_USER=...
 TWENTY_BASIC_PASSWORD=...
 ```
 
+Local development overrides the redirect with `http://localhost:5173/callback`
+(the client must have that URI registered too) and points the CLI at it with
+`--web-url http://localhost:5173 --api-url http://localhost:4180`.
+
 Two rules that are not obvious:
 
-- **The redirect URI must match exactly.** The web dev server is pinned to port
-  5173 with `strictPort`, because a Vite server that silently moved to 5174
-  would make Twenty reject the consent request with an opaque
+- **The redirect URI must match exactly.** It must be registered on the Twenty
+  client (`POST {TWENTY_BASE_URL}/oauth/register`), and it must equal
+  `TWENTY_OAUTH_REDIRECT_URI` byte for byte. The web dev server is pinned to
+  port 5173 with `strictPort`, because a Vite server that silently moved to
+  5174 would make Twenty reject the consent request with an opaque
   `error=invalid_request` instead of a usable message.
 - **Set both basic variables, or neither.** A user without a password is not a
   half-configured guard, it is no guard: the API treats the pair as absent and
