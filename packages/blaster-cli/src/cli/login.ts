@@ -371,14 +371,18 @@ export function runExchangeServer(options: {
 /**
  * The OS command that opens a URL in the browser, split out for testing.
  *
- * Windows needs the URL quoted: cmd.exe splits an unquoted command line on
- * `&`, which silently truncated the authorize URL to just `?state=...` and
- * dropped the exchange the terminal waits on. Every other platform takes the
- * URL as a single argv entry and needs no quoting.
+ * Windows takes the whole inner command as one argv entry: cmd strips the
+ * outer quotes itself (/s) and `start` receives its title plus the URL
+ * intact. Quoting the URL as its own argv entry gets re-escaped by the spawn
+ * layer (cmd chokes on the backslash and opens nothing), and leaving it bare
+ * lets cmd split the query string on `&` (the browser opens `?state=...`
+ * alone, no exchange reaches the page, and the terminal waits out the
+ * timeout). Every other platform takes the URL as a single argv entry and
+ * needs nothing special.
  */
 export function buildBrowserCommand(url: string, platform: string): { command: string; args: string[] } {
   if (platform === "win32") {
-    return { command: "cmd", args: ["/c", "start", "", `"${url}"`] };
+    return { command: "cmd", args: ["/d", "/s", "/c", `start "" "${url}"`] };
   }
   if (platform === "darwin") {
     return { command: "open", args: [url] };
@@ -387,9 +391,14 @@ export function buildBrowserCommand(url: string, platform: string): { command: s
 }
 
 function openBrowser(url: string): boolean {
+  // The URL becomes part of a cmd command line on Windows: a quote in it
+  // would break out of the quoting above, so refuse and let the caller print
+  // the URL instead. (The builder percent-encodes the query, so a quote can
+  // only arrive in a hand-passed --web-url, which the validator rejects.)
+  if (url.includes('"')) return false;
   try {
     const { command, args } = buildBrowserCommand(url, process.platform);
-    const child = spawn(command, args, { stdio: "ignore", detached: true });
+    const child = spawn(command, args, { stdio: "ignore", detached: true, windowsHide: true });
     child.unref();
     return true;
   } catch {

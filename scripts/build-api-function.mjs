@@ -24,13 +24,18 @@ import { build } from "esbuild";
 import { copyFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
-// A distinct name from the source: Vercel rejects a deployment where two files in one
-// directory share a name without their extension, so `handler.js` cannot collide
-// with `index.ts` the way `index.js` would.
+// The entry is underscore-prefixed on purpose: Vercel treats every file
+// under api/ as a function candidate, and a bare `index.ts` next to the
+// bundle made two builders fight over the route (the tracer chokes on this
+// repo's explicit `.ts` specifiers and the route silently vanished from some
+// builds while working in others). The underscore keeps zero-config
+// detection off the source so `handler.js` is the only candidate, on every
+// toolchain version. `handler.js` cannot collide with `_entry.ts` the way
+// `index.js` would have with `index.ts`.
 const OUTFILE = "api/handler.js";
 
 const result = await build({
-  entryPoints: ["api/index.ts"],
+  entryPoints: ["api/_entry.ts"],
   outfile: OUTFILE,
   bundle: true,
   platform: "node",

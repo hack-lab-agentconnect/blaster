@@ -77,12 +77,14 @@ describe("buildBrowserCommand", () => {
     "https://blaster-web-nine.vercel.app/login?state=st-1&code_challenge=ch-1&exchange=" +
     encodeURIComponent("http://127.0.0.1:5555/exchange");
 
-  test("Windows quotes the URL so cmd keeps every query parameter", () => {
-    // Unquoted, cmd.exe splits on & and the browser opens ?state=... alone:
-    // no exchange reaches the page and the terminal waits out the timeout.
+  test("Windows passes one command line so cmd keeps every query parameter", () => {
+    // Bare, cmd.exe splits on & and the browser opens ?state=... alone;
+    // pre-quoted, the spawn layer re-escapes the quotes and cmd chokes on the
+    // backslash. Either way no exchange reaches the page and the terminal
+    // waits out the timeout.
     const { command, args } = buildBrowserCommand(url, "win32");
     expect(command).toBe("cmd");
-    expect(args).toEqual(["/c", "start", "", `"${url}"`]);
+    expect(args).toEqual(["/d", "/s", "/c", `start "" "${url}"`]);
   });
 
   test("macOS and Linux take the URL as a single argv entry", () => {
