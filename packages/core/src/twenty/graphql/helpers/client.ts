@@ -9,8 +9,8 @@
  * The option is generic over the factory it is given and returns that
  * factory's own client type on purpose. Importing the generated `Client`
  * type here would drag an 8 MB workspace schema into every consumer of
- * `@blaster/core/twenty/api`, which is exactly what keeping the generated
- * client on its own `./twenty/api/generated` subpath exists to avoid. The
+ * `@blaster/core/twenty/graphql`, which is exactly what keeping the generated
+ * client on its own `./twenty/graphql/generated` subpath exists to avoid. The
  * caller imports `createClient` from there, so the types arrive only where
  * someone is actually writing a query.
  */

@@ -6,17 +6,19 @@
 // modules would make it worse, not better.
 //
 // What this enforces, per docs/naming-conventions.md:
-//   1. Library and domain directories are lowercase kebab-case.
+//   1. Library and domain directories are lowercase kebab-case, or a Twenty mirror.
 //   2. Backend .ts file names are lowercase kebab-case.
-//   3. Every domain has index.ts and types.ts.
+//   3. Every domain has index.ts.
 //   4. Every helpers/ directory has an index.ts barrel.
 //   5. No helper imports its parent domain barrel (../index), which would make
 //      the barrel depend on its own helpers.
-//   6. A domain index.ts uses named exports, not `export *`, so a domain's
-//      public surface is readable without opening every helper.
 //
 // Generated trees are exempt: their file names and exports belong to the
 // generator, and editing them is undone by the next run.
+//
+// The doc is the authority and the gate follows it, not the other way round. The
+// doc asks for `export *` barrels, so the gate does not police a barrel's export
+// style; a rule nothing checks is a rule that quietly stops being true.
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join, relative, sep } from "node:path";

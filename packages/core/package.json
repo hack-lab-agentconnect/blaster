@@ -8,8 +8,8 @@
     "exports": {
         ".": "./src/index.ts",
         "./twenty/oauth": "./src/twenty/oauth/index.ts",
-        "./twenty/api": "./src/twenty/api/index.ts",
-        "./twenty/api/generated": "./src/twenty/api/generated/index.ts"
+        "./twenty/graphql": "./src/twenty/graphql/index.ts",
+        "./twenty/graphql/generated": "./src/twenty/graphql/generated/index.ts"
     },
     "scripts": {
         "typecheck": "tsc --noEmit"

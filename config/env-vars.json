@@ -4,7 +4,7 @@
     {
       "name": "TWENTY_BASE_URL",
       "status": "active",
-      "consumedBy": ["packages/core/src/twenty/crm/helpers/client.ts"],
+      "consumedBy": ["packages/core/src/twenty/client/helpers/client.ts"],
       "required": true,
       "secret": false,
       "description": "Origin of the Twenty workspace, without a trailing slash. Records are read from ${TWENTY_BASE_URL}/rest/<object> and metadata from ${TWENTY_BASE_URL}/graphql."
@@ -12,7 +12,7 @@
     {
       "name": "TWENTY_API_KEY",
       "status": "active",
-      "consumedBy": ["packages/core/src/twenty/crm/helpers/client.ts"],
+      "consumedBy": ["packages/core/src/twenty/client/helpers/client.ts"],
       "required": true,
       "secret": true,
       "description": "Twenty API key, sent as a bearer token on every REST and GraphQL call. Never leaves the server."
@@ -23,7 +23,7 @@
       "consumedBy": [],
       "required": false,
       "secret": false,
-      "reason": "Only needed by the direct-Postgres login path, which is not built. Blaster authenticates to Twenty with an API key today, so there is no user to attribute a login to yet.",
+      "reason": "Only needed by the direct-Postgres login path, which is not built. Record attribution resolves a workspaceMember from the operator's OAuth token instead, so nothing reads this today.",
       "description": "Workspace user email recorded alongside records Blaster writes, for audit."
     },
     {
@@ -107,6 +107,30 @@
       "required": false,
       "secret": true,
       "description": "Shared secret for the webhook receiver, used when no public key is configured to verify signatures."
+    },
+    {
+      "name": "OPENAI_API_KEY",
+      "status": "active",
+      "consumedBy": ["packages/core/src/ai/analysis/index.ts"],
+      "required": false,
+      "secret": true,
+      "description": "Key for the OpenAI-compatible provider that grades call transcripts. When absent, call analysis is skipped and the transcript is still stored."
+    },
+    {
+      "name": "OPENAI_BASE_URL",
+      "status": "active",
+      "consumedBy": ["packages/core/src/ai/analysis/index.ts"],
+      "required": false,
+      "secret": false,
+      "description": "Base URL of the chat-completions endpoint, for a gateway or a local model. Defaults to https://api.openai.com/v1."
+    },
+    {
+      "name": "OPENAI_ANALYSIS_MODEL",
+      "status": "active",
+      "consumedBy": ["packages/core/src/ai/analysis/index.ts"],
+      "required": false,
+      "secret": false,
+      "description": "Model used to grade call transcripts. Recorded on each analysed call so a rating can be traced to the model that produced it. Defaults to gpt-4o-mini."
     },
     {
       "name": "PORT",

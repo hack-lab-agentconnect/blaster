@@ -1,6 +1,6 @@
 {
   "$comment": "Twenty nameSingular values, plus the Twenty concepts this repo mirrors. A camelCase domain directory is legal only when it appears here. Regenerate with `pnpm twenty:objects`.",
-  "derivedFrom": "packages/core/src/twenty/api/generated/schema.ts",
+  "derivedFrom": "packages/core/src/twenty/graphql/generated/schema.ts",
   "objects": [
     "actor",
     "agencyCall",

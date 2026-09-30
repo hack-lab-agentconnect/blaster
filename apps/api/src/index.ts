@@ -54,9 +54,11 @@ import {
 import { TelnyxError, listMessagingProfiles, sendMessage } from "./lib/telnyx/messaging/index.ts";
 import { readBreakdownFrom, twentyReader } from "./lib/pipeline/breakdown/index.ts";
 import { applyOutboundStatus, conversationMessages, listConversations, recordInboundMessage } from "./lib/convex/index.ts";
-import { requireOperator } from "./lib/auth/operator/index.ts";
+import { requireOperator, resolveOperatorActor } from "./lib/auth/operator/index.ts";
 import {
   eventTypeOf,
+  handleCallEvent,
+  isCallEvent,
   isInboundEvent,
   messageIdOf,
   readInboundMessage,
@@ -64,6 +66,7 @@ import {
   resolveOwnedDestination,
   statusOfOutboundEvent,
   verifyTelnyxWebhook,
+  type CallRecordingPayload,
   type OwnershipSources,
   type TelnyxWebhookEvent,
 } from "@blaster/core";
@@ -366,6 +369,9 @@ inbox.post("/messages/batch-send", requireOperator, async (c) => {
   if (!apiKey) return c.json({ error: "TELNYX_API_KEY is not configured" }, 500);
   try {
     const client = twentyClient();
+    // Resolved once for the whole run: the operator is the same for every
+    // recipient, and each write would otherwise repeat the member lookup.
+    const actor = await resolveOperatorActor(c);
     const found = findAgencyPhoneRow(await listAgencyPhones(client), body.agencyPhoneId);
     if (!found) return c.json({ error: "Unknown sending number" }, 404);
     if (!found.messagingProfileId) {
@@ -411,7 +417,7 @@ inbox.post("/messages/batch-send", requireOperator, async (c) => {
         continue;
       }
       try {
-        await markProspectOutbound(client, summary.id, "SENDING");
+        await markProspectOutbound(client, summary.id, "SENDING", actor);
       } catch {
         outcomes.push({ prospectId: summary.id, phone: to, status: "failed", detail: "Could not mark the prospect as sending" });
         failed += 1;
@@ -426,7 +432,7 @@ inbox.post("/messages/batch-send", requireOperator, async (c) => {
           messagingProfileId: resolution.profileId,
         });
         try {
-          await markProspectOutbound(client, summary.id, "AWAITING_DELIVERY");
+          await markProspectOutbound(client, summary.id, "AWAITING_DELIVERY", actor);
         } catch {
           outcomes.push({
             prospectId: summary.id,
@@ -443,7 +449,7 @@ inbox.post("/messages/batch-send", requireOperator, async (c) => {
       } catch (error) {
         const detail = error instanceof TelnyxError ? error.message : error instanceof Error ? error.message : String(error);
         try {
-          await markProspectOutbound(client, summary.id, "FAILED");
+          await markProspectOutbound(client, summary.id, "FAILED", actor);
         } catch {
           // Already failing; the send error is the one that matters.
         }
@@ -807,6 +813,9 @@ app.post("/api/numbers/purchase", async (c) => {
     let twenty: Array<unknown> = [];
     if (body?.syncToTwenty !== false && process.env.TWENTY_BASE_URL && process.env.TWENTY_API_KEY) {
       const client = twentyClient();
+      // Null on this route when nobody is signed in, which is not a failure:
+      // the number is still recorded, just not attributed to a person.
+      const actor = await resolveOperatorActor(c);
       twenty = [];
       for (const purchased of order.phoneNumbers) {
         const record = await upsertAgencyPhone(
@@ -820,6 +829,7 @@ app.post("/api/numbers/purchase", async (c) => {
             orderId: order.id,
             status: purchased.status,
           },
+          actor,
         );
         twenty.push(record);
       }
@@ -896,9 +906,10 @@ app.post("/api/phones/sync", async (c) => {
       twentyPhones,
     );
     const client = twentyClient();
+    const actor = await resolveOperatorActor(c);
     const upserted = [];
     for (const row of plan.toCreateInTwenty) {
-      upserted.push(await upsertAgencyPhone(client, row));
+      upserted.push(await upsertAgencyPhone(client, row, actor));
     }
     return c.json({
       direction,
@@ -1065,6 +1076,30 @@ app.post("/api/webhooks/telnyx", async (c) => {
       }
       return c.json({ ok: true, event: eventType, delivery: applied.status }, 200);
     }
+  }
+
+  // Call recordings and transcripts. These are a different family of event from
+  // the conversation ones above: they have no counterpart message and no thread,
+  // they land on the agencyCalls object rather than in Convex, and they carry no
+  // operator — a webhook is machine to machine, so crediting a call to whichever
+  // operator signed in most recently would be a worse lie than leaving it to
+  // Twenty's API actor.
+  if (isCallEvent(eventType)) {
+    if (!process.env.TWENTY_BASE_URL || !process.env.TWENTY_API_KEY) {
+      return c.json({ ok: false, error: "Twenty is not configured" }, 503);
+    }
+    const call = await handleCallEvent(
+      twentyClient(),
+      eventType,
+      parsed.data?.payload as CallRecordingPayload,
+    );
+    // An unprovisioned object is a configuration state, not a bad event: a
+    // retry cannot provision it, but the operator can, so this is 503 rather than
+    // an ack that discards the recording permanently.
+    if (call.outcome === "object-not-provisioned") {
+      return c.json({ ok: false, event: eventType, error: call.detail }, 503);
+    }
+    return c.json({ ok: true, event: eventType, call }, 200);
   }
 
   return c.json({ ok: true, event: eventType, stored: false, reason: "no action for this event" }, 200);

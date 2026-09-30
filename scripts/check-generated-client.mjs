@@ -15,7 +15,7 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const GENERATED = join(root, "packages/core/src/twenty/api/generated");
+const GENERATED = join(root, "packages/core/src/twenty/graphql/generated");
 
 /** Every file the generator emits, with a floor well below its real size. */
 const EXPECTED = [

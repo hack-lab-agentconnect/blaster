@@ -57,10 +57,18 @@ named with that object's `nameSingular` **verbatim**:
 | --- | --- | --- |
 | `twenty/agencyPhone/` | object `agencyPhone` | yes |
 | `twenty/agencyProspect/` | object `agencyProspect` | yes |
-| `twenty/objectService/` | Twenty's object-metadata surface | yes |
+| `twenty/agencyCall/` | object `agencyCall` | yes |
 | `twenty/workspaceMember/` | object `workspaceMember` | yes |
+| `twenty/objectService/` | Twenty's object-metadata surface | yes |
+| `twenty/actor/` | Twenty's `ACTOR` field type, on `createdBy` | yes |
 | `twenty/agency-phone/` | — | **no**: invented kebab-case for a camelCase object |
 | `twenty/phones/` | — | **no**: a generic noun, not an object name |
+
+Not every domain in `twenty/` is a mirror. `twenty/client` and `twenty/graphql`
+name a *transport*, and transports are repo-owned, so they are kebab-case like
+any other repo-owned name. The test is the same one: ask what the name comes
+from. `agencyCall` comes from Twenty and keeps Twenty's spelling; `client` is
+ours and is spelled our way.
 
 Two naming styles coexist deliberately:
 
@@ -91,11 +99,18 @@ find out what kind of thing it is:
 | `index.ts` | The entry point: I/O, wiring, and re-exports | Pure business logic |
 | `types.ts` | The domain's types, when it declares its own | Implementations |
 | `client.ts` | Fetch calls, SDK calls, database access | Pure logic, business rules |
+| `schema.ts` | Schema provisioning: creating the object and its fields | Record reads or writes |
 | `helpers/*.ts` | Pure functions, unit-testable in isolation | I/O of any kind |
 | `machine.ts` | States, events, transitions | Side effects outside the machine |
 
 `types.ts` is the home for a domain's types, but it is not mandatory: a small
 domain whose types live naturally next to the one helper that owns them is fine.
+
+`schema.ts` exists because schema mutation and record I/O have different failure
+costs and different callers. Provisioning runs once, deliberately, by whoever
+sets a workspace up, and it changes the *shape* of the object. Record I/O runs on
+every inbound webhook. Keeping them apart is what stops a webhook from being able
+to alter the object it is writing to. See `twenty/agencyCall/`.
 
 The split that matters most is **pure helpers vs. `client.ts`**. A helper can be
 tested with no network and no credentials, which is why the business rules live

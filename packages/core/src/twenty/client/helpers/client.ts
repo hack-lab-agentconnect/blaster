@@ -21,6 +21,8 @@
  * custom `agency*` objects that the core objects API rejects.
  */
 
+import type { WriteActor } from "../../actor/types.ts";
+
 export interface TwentyConfig {
   baseUrl: string;
   apiKey: string;
@@ -152,7 +154,22 @@ export function unwrapItem<T>(payload: unknown, path: string): T | null {
 }
 
 /**
- * A `SELECT` field is written either as a bare string or as `{value,label}`.
+ * Add the write's actor to a record body.
+ *
+ * `createdBy` is only added when the caller supplied one and the body did not
+ * already set it, so a caller that deliberately sets its own value keeps it and
+ * a write with no resolved member is byte-for-byte what it was before. A null
+ * actor returns the original object rather than a copy, so the common path
+ * allocates nothing.
+ */
+function withActor(data: unknown, actor?: WriteActor | null): unknown {
+  if (!actor?.createdBy) return data;
+  const body = data as Record<string, unknown>;
+  if (body.createdBy !== undefined) return data;
+  return { ...body, createdBy: actor.createdBy };
+}
+
+/** A `SELECT` field is written either as a bare string or as `{value,label}`.
  * Callers want the value.
  */
 export function selectValue(value: unknown): string | undefined {
@@ -266,18 +283,38 @@ export class TwentyClient {
     return unwrapItem<T>(payload, path);
   }
 
-  async create<T = TwentyRecord>(path: string, data: unknown): Promise<T | null> {
+  /**
+   * Create a record, attributing it to `actor` when one is supplied.
+   *
+   * See `twenty/actor` for why attribution is optional and what Twenty does with
+   * a `createdBy` it was given.
+   */
+  async create<T = TwentyRecord>(
+    path: string,
+    data: unknown,
+    actor?: WriteActor | null,
+  ): Promise<T | null> {
     const payload = await this.raw(this.cleanPath(path), {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify(withActor(data, actor)),
     });
     return unwrapItem<T>(payload, path);
   }
 
-  async update<T = TwentyRecord>(path: string, id: string, data: unknown): Promise<T | null> {
+  /**
+   * Patch a record. Twenty recomputes `updatedBy` from the authenticated caller
+   * and ignores any value sent for it, so an actor here affects `createdBy` on a
+   * create only — see the note on `ActorPayload`.
+   */
+  async update<T = TwentyRecord>(
+    path: string,
+    id: string,
+    data: unknown,
+    actor?: WriteActor | null,
+  ): Promise<T | null> {
     const payload = await this.raw(`${this.cleanPath(path)}/${encodeURIComponent(id)}`, {
       method: "PATCH",
-      body: JSON.stringify(data),
+      body: JSON.stringify(withActor(data, actor)),
     });
     return unwrapItem<T>(payload, path);
   }

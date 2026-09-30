@@ -24,7 +24,7 @@ import {
   validateProspectFilters,
   walkProspectRows,
 } from "../src/twenty/agencyProspect/index.ts";
-import type { TwentyClient, TwentyRecord } from "../src/twenty/crm/helpers/client.ts";
+import type { TwentyClient, TwentyRecord } from "../src/twenty/client/helpers/client.ts";
 
 const record = (overrides: Record<string, unknown> = {}): TwentyRecord => ({
   id: "rec-1",

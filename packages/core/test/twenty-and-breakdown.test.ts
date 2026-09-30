@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { unwrapItem, unwrapList, combineFilters, selectValue } from "../src/twenty/crm/helpers/client.ts";
+import { unwrapItem, unwrapList, combineFilters, selectValue } from "../src/twenty/client/helpers/client.ts";
 import {
   buildBreakdown,
   evaluateNotifications,

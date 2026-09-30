@@ -54,6 +54,13 @@ export interface Introspection {
   username: string | null;
   scope: string | null;
   expiresAt: number | null;
+  /**
+   * The subject: Twenty's user id, which is what a `workspaceMember` is looked
+   * up by. Kept separate from `username`, which is a display string and is not
+   * guaranteed to be the email or to be unique.
+   */
+  sub: string | null;
+  email: string | null;
 }
 
 type FetchFn = typeof fetch;
@@ -278,6 +285,8 @@ export async function introspectToken(
     username: typeof body.username === "string" ? body.username : null,
     scope: typeof body.scope === "string" ? body.scope : null,
     expiresAt: typeof body.exp === "number" ? body.exp : null,
+    sub: typeof body.sub === "string" ? body.sub : null,
+    email: typeof body.email === "string" ? body.email : null,
   };
 }
 

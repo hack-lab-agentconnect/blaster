@@ -58,7 +58,7 @@ const EXEMPTIONS = [{ file: 'apps/docs/app/globals.css', line: /--font-mono\s*:/
 const NAME_MENTION = /(^|[^\w-])(?:check:)?no-font-mono([^\w-]|$)/;
 
 // Machine-written files are not design decisions. The generated Twenty client
-// (packages/core/src/twenty/api/generated) is a verbatim print of the
+// (packages/core/src/twenty/graphql/generated) is a verbatim print of the
 // workspace's own GraphQL schema, and that schema contains enum values such as
 // the country 'MONACO'. Nothing in these files can render, so the marker the
 // emitter stamps is what exempts them, not a path allowlist that would rot.

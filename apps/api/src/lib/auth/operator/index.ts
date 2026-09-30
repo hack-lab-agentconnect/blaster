@@ -1,1 +1,8 @@
-export { requireOperator, type OperatorInfo } from "./middleware.ts";
+export {
+  operatorIdentity,
+  requireOperator,
+  resolveOperatorActor,
+  type ActorIdentity,
+  type OperatorInfo,
+  type WriteActor,
+} from "./middleware.ts";

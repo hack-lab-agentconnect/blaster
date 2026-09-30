@@ -41,28 +41,46 @@ deployment exists, rather than failing closed on a missing backend.
 
 ```
 packages/core/src/
-  twenty/crm/            Twenty REST client, envelope unwrapping, keyset paging
-  twenty/agencyPhone/    agencyPhones mapping and Twenty/Convex sync planning
-  twenty/agencyProspect/ agencyProspects: the filter menu, validation, and batch eligibility
-  twenty/objectService/  Twenty's object metadata (`/metadata`); mirrors Twenty's own name
-  twenty/oauth/          Twenty OAuth2 (discovery, PKCE, token exchange/refresh, introspection)
-  twenty/api/            Session-bound GraphQL client (OAuth tokens with refresh);
-                         reads the generated client emitted by `pnpm twenty:client`
-  telnyx/messaging/      Profile resolution and the Telnyx REST client
-  telnyx/numbers/        Number search, purchase, and messaging-profile assignment
-  pipeline/breakdown/    The breakdown builder and the notification rules
-  pipeline/sequence/     Sequence drafts, eligibility, and enrollment cursors
+  twenty/client/          Twenty REST client, envelope unwrapping, keyset paging,
+                          and the actor a write is attributed to
+  twenty/actor/           The Actor Twenty stamps on a record; resolves a member
+                          to a `createdBy` (Twenty's own field name)
+  twenty/workspaceMember/ Reading `workspaceMembers` to attribute a write to a person
+  twenty/agencyPhone/     agencyPhones mapping and Twenty/Convex sync planning
+  twenty/agencyProspect/  agencyProspects: the filter menu, validation, and batch eligibility
+  twenty/agencyCall/      agencyCalls: the call record, the Telnyx event mapping,
+                          and the schema provisioner
+  twenty/objectService/   Twenty's object metadata (`/metadata`); mirrors Twenty's own name
+  twenty/oauth/           Twenty OAuth2 (discovery, PKCE, token exchange/refresh, introspection)
+  twenty/graphql/         Session-bound GraphQL client (OAuth tokens with refresh);
+                          reads the generated client emitted by `pnpm twenty:client`
+  ai/analysis/            Grading a call transcript with an OpenAI-compatible provider
+  telnyx/messaging/       Profile resolution, webhook verification, and the Telnyx REST client
+  telnyx/numbers/         Number search, purchase, and messaging-profile assignment
+  pipeline/breakdown/     The breakdown builder and the notification rules
+  pipeline/sequence/      Sequence drafts, eligibility, and enrollment cursors
   conversation/classification/  Per-message states, Jev questions, reply gate
-  guidance/prompts/      Versioned reply guidance selected by resolution path
-  platform/env/          The environment manifest reader
+  guidance/prompts/       Versioned reply guidance selected by resolution path
+  platform/env/           The environment manifest reader
 ```
 
-Twenty reads go through the `twenty/api` session client. The typed GraphQL
-client it binds is generated from the live workspace (`scripts/emit-twenty-client.mjs`,
-`pnpm twenty:client`), following the twenty-coach pattern: introspect the
-instance, emit `twenty/api/generated/`, expose it at the `@blaster/core/twenty/api`
-subpath. Until generation, transports keep working as before — generation swaps
-internals, not call sites.
+The typed GraphQL client is generated from the live workspace
+(`scripts/emit-twenty-client.mjs`, `pnpm twenty:client`), following the
+twenty-coach pattern: introspect the instance, emit
+`twenty/graphql/generated/`, expose it at the
+`@blaster/core/twenty/graphql/generated` subpath. Until generation, transports
+keep working as before — generation swaps internals, not call sites.
+
+Two credentials reach Twenty, and they are not interchangeable. Record reads and
+writes use `TWENTY_API_KEY`; object metadata on `/metadata` rejects that key
+outright and needs an OAuth bearer. See `twenty/objectService` and
+`twenty/agencyCall/schema.ts`.
+
+Writes carry an actor. Blaster authenticates as the *workspace*, so without one
+Twenty stamps every record with its anonymous API actor. `twenty/actor` resolves
+the signed-in operator to a `workspaceMember` and passes that as `createdBy`.
+Attribution is best-effort: a surface with no signed-in operator still writes, it
+just is not attributed. See docs/member-attribution.md.
 
 Every domain has an `index.ts` entrypoint, every `helpers/` has a barrel, and no
 helper imports its own domain barrel. Callers import the domain, never the
@@ -101,7 +119,7 @@ explicitly rather than assumed away:
 
 Record reads still use REST, and the reason is behavioural rather than a
 limitation of GraphQL. The custom `agency*` objects *are* in the core GraphQL
-schema: the generated client in `packages/core/src/twenty/api/generated/` is
+schema: the generated client in `packages/core/src/twenty/graphql/generated/` is
 built from live introspection and contains `agencyPhones`, `agencyLeads`,
 `agencyCalls`, and the rest, with exact field types. REST stays for now because
 the reads depend on behaviour the GraphQL connections do not offer the same way

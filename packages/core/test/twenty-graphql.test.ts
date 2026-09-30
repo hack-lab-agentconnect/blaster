@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
-import { authorizedFetch, isExpiredTokenResponse } from "../src/twenty/api/helpers/session.ts";
-import { createTwentyClient } from "../src/twenty/api/helpers/client.ts";
-import type { SessionStore, TwentySession } from "../src/twenty/api/types.ts";
+import { authorizedFetch, isExpiredTokenResponse } from "../src/twenty/graphql/helpers/session.ts";
+import { createTwentyClient } from "../src/twenty/graphql/helpers/client.ts";
+import type { SessionStore, TwentySession } from "../src/twenty/graphql/types.ts";
 
 const SESSION: TwentySession = {
   tokens: { accessToken: "at-1", refreshToken: "rt-1", expiresIn: 3600, scope: "api" },

@@ -20,7 +20,7 @@ flowchart TB
     HONO["Hono worker - apps/api<br/>Railcode app on railcode.dev"]
   end
   subgraph core["Domain library - packages/core"]
-    CRM["twenty/crm"]
+    CLIENT["twenty/client"]
     MSG["telnyx/messaging"]
     BRK["pipeline/breakdown"]
     ENV["platform/env"]
@@ -39,9 +39,9 @@ flowchart TB
   WEB --> HONO
   HONO --> core
   HONO -. "writes" .-> FN
-  CRM --> TWENTY
+  CLIENT --> TWENTY
   MSG --> TELNYX
-  BRK --> CRM
+  BRK --> CLIENT
   MANIFEST -. "read by" .-> core
   MANIFEST -. "read by" .-> convex
   TREG --> FN
@@ -121,7 +121,7 @@ MCP tools: `blaster_breakdown`, `blaster_env`, `blaster_messaging_profile`,
 apps/api             Hono HTTP surface (the Railcode worker)
 convex/              Convex backend: schema, treg + telnyx components, functions
 packages/core        The domain. Every business rule lives here
-  src/twenty/crm           Twenty REST client, unwrapping, keyset paging
+  src/twenty/client        Twenty REST client, unwrapping, keyset paging
   src/telnyx/messaging     Profile resolution and the Telnyx client
   src/pipeline/breakdown   The breakdown builder and notification rules
   src/platform/env         The environment manifest reader

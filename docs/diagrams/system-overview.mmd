@@ -12,7 +12,7 @@ flowchart TB
   end
 
   subgraph core["Domain library - the only place a rule lives"]
-    CRM["twenty/crm<br/>REST client, envelope unwrapping,<br/>keyset pagination"]
+    CLIENT["twenty/client<br/>REST client, envelope unwrapping,<br/>keyset pagination"]
     MSG["telnyx/messaging<br/>profile resolution, Telnyx client"]
     BRK["pipeline/breakdown<br/>pure builder, notification rules"]
     ENV["platform/env<br/>manifest reader"]
@@ -40,9 +40,9 @@ flowchart TB
   HONO --> core
   HONO -. "writes" .-> FN
 
-  CRM --> TWENTY
+  CLIENT --> TWENTY
   MSG --> TELNYX
-  BRK --> CRM
+  BRK --> CLIENT
   ENV --> MANIFEST
 
   CONVEXCFG["convex.config.ts"] --> TREG
@@ -61,4 +61,4 @@ flowchart TB
   classDef surf fill:#131a33,stroke:#8ea3d6,color:#f5f7ff
   class TWENTY,TELNYX ext
   class MANIFEST store
-  class CLI,MCP,WEB,HONO,CRM,MSG,BRK,ENV surf
+  class CLI,MCP,WEB,HONO,CLIENT,MSG,BRK,ENV surf

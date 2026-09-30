@@ -11,7 +11,7 @@
  * delivered once, recorded, and not repeated.
  */
 
-import { selectValue, type TwentyRecord } from "../../../twenty/crm/helpers/client.ts";
+import { selectValue, type TwentyRecord } from "../../../twenty/client/helpers/client.ts";
 
 /** Lead status vocabulary, keyed by the Twenty `SELECT` values. */
 export const LEAD_STATUSES = [

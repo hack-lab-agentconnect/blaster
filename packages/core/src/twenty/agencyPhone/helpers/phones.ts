@@ -18,7 +18,8 @@
  *     purchase itself always goes through the Telnyx number-order path.
  */
 
-import { selectValue, type TwentyClient, type TwentyRecord } from "../../crm/helpers/client.ts";
+import { selectValue, type TwentyClient, type TwentyRecord } from "../../client/helpers/client.ts";
+import type { WriteActor } from "../../actor/types.ts";
 import type { AvailablePhoneNumber, PurchasedPhoneNumber } from "../../../telnyx/numbers/helpers/numbers.ts";
 
 export const AGENCY_PHONES_OBJECT = "agencyPhones";
@@ -124,11 +125,19 @@ export async function listAgencyPhones(client: TwentyClient): Promise<TwentyReco
 
 /**
  * Create the row, or patch the existing one matched by phone number.
+ *
  * Twenty has no upsert, so the match is an explicit filtered read first.
+ *
+ * `actor` attributes the write to the operator whose session triggered it. It is
+ * optional because the purchase path can run without a signed-in operator, and an
+ * unattributed row is correct there rather than an error. It only affects a
+ * create: a patch keeps whatever `createdBy` the row already had, and Twenty
+ * recomputes `updatedBy` itself either way.
  */
 export async function upsertAgencyPhone(
   client: TwentyClient,
   input: AgencyPhoneInput,
+  actor?: WriteActor | null,
 ): Promise<TwentyRecord | null> {
   const existing = await client.listAll<TwentyRecord>(AGENCY_PHONES_OBJECT, {
     filter: `phoneNumber[eq]:"${input.phoneNumber}"`,
@@ -146,6 +155,6 @@ export async function upsertAgencyPhone(
     orderId: input.orderId ?? null,
     status: input.status ?? null,
   };
-  if (match) return client.update<TwentyRecord>(AGENCY_PHONES_OBJECT, match.id, body);
-  return client.create<TwentyRecord>(AGENCY_PHONES_OBJECT, body);
+  if (match) return client.update<TwentyRecord>(AGENCY_PHONES_OBJECT, match.id, body, actor);
+  return client.create<TwentyRecord>(AGENCY_PHONES_OBJECT, body, actor);
 }

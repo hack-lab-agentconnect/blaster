@@ -5,7 +5,7 @@
  * routes are generated from the live schema and cover the custom `agency*`
  * objects; GraphQL stays the metadata path per `TwentyClient.graphql`. The
  * field menu below is grounded in the vendored generated schema
- * (`twenty/api/generated/schema.ts`, `AgencyProspectFilterInput`), which is
+ * (`twenty/graphql/generated/schema.ts`, `AgencyProspectFilterInput`), which is
  * itself generated from this deployment's schema — the CLI never invents
  * field names or operators, it renders this menu.
  *
@@ -25,8 +25,9 @@ import {
   combineFilters,
   type TwentyClient,
   type TwentyRecord,
-} from "../../crm/helpers/client.ts";
+} from "../../client/helpers/client.ts";
 import { fromAgencyPhoneRecord } from "../../agencyPhone/helpers/phones.ts";
+import type { WriteActor } from "../../actor/types.ts";
 export const AGENCY_PROSPECTS_OBJECT = "agencyProspects";
 
 /** E.164, the only phone shape Telnyx accepts. */
@@ -357,8 +358,13 @@ export function splitEligibility(rows: TwentyRecord[]): EligibilitySplit {
 }
 
 /** Advance one prospect's outbound lifecycle. Throws TwentyError on failure. */
-export async function markProspectOutbound(client: TwentyClient, id: string, state: string): Promise<void> {
-  await client.update(AGENCY_PROSPECTS_OBJECT, id, { outboundState: state });
+export async function markProspectOutbound(
+  client: TwentyClient,
+  id: string,
+  state: string,
+  actor?: WriteActor | null,
+): Promise<void> {
+  await client.update(AGENCY_PROSPECTS_OBJECT, id, { outboundState: state }, actor);
 }
 
 /** Find one sending-number row by record id. Pure: the caller lists the rows,

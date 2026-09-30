@@ -135,7 +135,7 @@ Two rules that are not obvious:
 ## The generated client
 
 Sign-in produces a token, and a token needs somewhere to go. The typed GraphQL
-client in `packages/core/src/twenty/api/` is where it lands:
+client in `packages/core/src/twenty/graphql/` is where it lands:
 
 - `pnpm twenty:client` introspects the configured workspace and emits
   `generated/` from it, so the custom `agency*` objects arrive with exact

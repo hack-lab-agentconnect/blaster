@@ -1,7 +1,7 @@
 /**
  * The generated Twenty client, actually running.
  *
- * This is the load-bearing test for `twenty/api`: it imports the client that
+ * This is the load-bearing test for `twenty/graphql`: it imports the client that
  * `pnpm twenty:client` emitted from the live workspace, binds it through the
  * session factory, and proves three things that unit tests with a hand-written
  * stub cannot:
@@ -9,16 +9,16 @@
  *   1. the workspace's own `agency*` custom objects resolve into real GraphQL,
  *   2. the operator's OAuth token is attached to that generated request, and
  *   3. when the instance rejects the token, the refresh-and-replay path in
- *      twenty/api recovers the call rather than surfacing a stale-token error.
+ *      twenty/graphql recovers the call rather than surfacing a stale-token error.
  *
  * Everything is stubbed at the fetch boundary, so no credentials and no
  * workspace are needed.
  */
 import { describe, expect, test } from "vitest";
-import { createClient } from "../src/twenty/api/generated/index.ts";
-import { createTwentyClient } from "../src/twenty/api/helpers/client.ts";
-import { createServerTwentyClient } from "../src/twenty/api/helpers/server-client.ts";
-import type { SessionStore, TwentySession } from "../src/twenty/api/types.ts";
+import { createClient } from "../src/twenty/graphql/generated/index.ts";
+import { createTwentyClient } from "../src/twenty/graphql/helpers/client.ts";
+import { createServerTwentyClient } from "../src/twenty/graphql/helpers/server-client.ts";
+import type { SessionStore, TwentySession } from "../src/twenty/graphql/types.ts";
 
 const SESSION: TwentySession = {
   tokens: { accessToken: "at-1", refreshToken: "rt-1", expiresIn: 3600, scope: "api" },
