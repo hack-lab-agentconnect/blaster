@@ -36,6 +36,7 @@ import {
   generateState,
   isTokenExpired,
 } from "@blaster/core/twenty/oauth";
+import { begin, fail, finish, isInteractive, spin } from "./prompt.ts";
 
 export const LOGIN_USAGE = `Usage: blaster login [--web-url <url>] [--api-url <url>] [--token <tok>] [--json]
 
@@ -371,18 +372,25 @@ export function runExchangeServer(options: {
 /**
  * The OS command that opens a URL in the browser, split out for testing.
  *
- * Windows takes the whole inner command as one argv entry: cmd strips the
- * outer quotes itself (/s) and `start` receives its title plus the URL
- * intact. Quoting the URL as its own argv entry gets re-escaped by the spawn
- * layer (cmd chokes on the backslash and opens nothing), and leaving it bare
- * lets cmd split the query string on `&` (the browser opens `?state=...`
- * alone, no exchange reaches the page, and the terminal waits out the
- * timeout). Every other platform takes the URL as a single argv entry and
- * needs nothing special.
+ * This is the same approach Python's `webbrowser` module takes (and the one
+ * Click documents): ask the OS shell to open the URL rather than driving
+ * cmd.exe by hand. Every cmd recipe breaks on a real authorize URL: bare
+ * splits the query on `&` (the browser opens `?state=...` alone and the
+ * terminal waits out the timeout), and pre-quoting gets re-escaped by the
+ * spawn layer into a backslash cmd chokes on.
+ *
+ * Windows therefore goes through PowerShell's `Start-Process` (ShellExecute,
+ * like `os.startfile`), fed via `-EncodedCommand`: the script is base64 of
+ * UTF-16LE, so the URL crosses the argv boundary as alphanumerics and no
+ * layer — libuv quoting, cmd parsing, PowerShell parsing — ever reinterprets
+ * `&`, `%`, or quotes inside it. Single quotes in the script are literal, so
+ * the URL is safe verbatim; a URL containing a single quote is refused below.
+ * Every other platform takes the URL as a single argv entry to its opener.
  */
 export function buildBrowserCommand(url: string, platform: string): { command: string; args: string[] } {
   if (platform === "win32") {
-    return { command: "cmd", args: ["/d", "/s", "/c", `start "" "${url}"`] };
+    const encoded = Buffer.from(`Start-Process '${url}'`, "utf16le").toString("base64");
+    return { command: "powershell", args: ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded] };
   }
   if (platform === "darwin") {
     return { command: "open", args: [url] };
@@ -391,11 +399,11 @@ export function buildBrowserCommand(url: string, platform: string): { command: s
 }
 
 function openBrowser(url: string): boolean {
-  // The URL becomes part of a cmd command line on Windows: a quote in it
-  // would break out of the quoting above, so refuse and let the caller print
+  // The URL is embedded in a single-quoted PowerShell script on Windows: a
+  // single quote in it would break out, so refuse and let the caller print
   // the URL instead. (The builder percent-encodes the query, so a quote can
   // only arrive in a hand-passed --web-url, which the validator rejects.)
-  if (url.includes('"')) return false;
+  if (url.includes("'")) return false;
   try {
     const { command, args } = buildBrowserCommand(url, process.platform);
     const child = spawn(command, args, { stdio: "ignore", detached: true, windowsHide: true });
@@ -547,6 +555,12 @@ export async function loginMain(
   }
   const apiUrl = resolveApiUrl(apiUrlArg, root);
 
+  // Interactive styling (intro, spinner, outro) only when a human watches:
+  // --json, pipes, and CI keep the exact historical lines.
+  const ui = isInteractive(json);
+  const err = ui ? fail : console.error;
+  if (ui) begin("blaster login");
+
   let partial: Omit<SessionRecord, "username" | "apiUrl" | "loggedInAt">;
   let source: "browser" | "paste";
   if (pasted) {
@@ -588,16 +602,19 @@ export async function loginMain(
       if (!openBrowser(authorize)) {
         console.log(`Could not open a browser automatically. Open this URL manually: ${authorize}`);
       }
-      console.log("Waiting for sign-in to complete…");
+      const waiter = ui ? spin("Waiting for sign-in to complete…") : null;
+      if (!ui) console.log("Waiting for sign-in to complete…");
       const outcome = await exchange.result;
       if (!outcome.ok) {
-        console.error(
+        waiter?.stop("Sign-in did not complete.");
+        err(
           outcome.error === "timed out"
             ? "blaster login: sign-in timed out before the browser completed the exchange."
             : "blaster login: the browser could not complete the exchange.",
         );
         return 1;
       }
+      waiter?.stop("Browser sign-in received.");
       partial = outcome.session;
       source = "browser";
     } finally {
@@ -607,7 +624,7 @@ export async function loginMain(
 
   const validation = await validateSessionToken(apiUrl, partial.accessToken);
   if (!validation.ok) {
-    console.error(
+    err(
       validation.kind === "auth"
         ? "blaster login: the API rejected the session token. Sign in again and re-run blaster login."
         : `blaster login: ${validation.message}`,
@@ -626,15 +643,20 @@ export async function loginMain(
     { apiUrl },
   );
   const masked = maskSecret(partial.accessToken);
-  console.log(
-    json
-      ? JSON.stringify(
+  const summary = `Signed in${validation.identity.username ? ` as ${validation.identity.username}` : ""}. Stored Twenty session for ${apiUrl} (.blaster/sessions.json, ${masked}).`;
+  if (json) {
+    console.log(
+      JSON.stringify(
         { ok: true, command: "login", source, apiUrl, username: validation.identity.username, masked },
         null,
         2,
-      )
-      : `Signed in${validation.identity.username ? ` as ${validation.identity.username}` : ""}. Stored Twenty session for ${apiUrl} (.blaster/sessions.json, ${masked}).`,
-  );
+      ),
+    );
+  } else if (ui) {
+    finish(summary);
+  } else {
+    console.log(summary);
+  }
   return 0;
 }
 

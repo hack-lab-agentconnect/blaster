@@ -67,6 +67,18 @@ export function finish(summary: string): void {
   clack.outro(summary);
 }
 
+/** Styled error line for interactive runs; plain console.error stays for pipes. */
+export function fail(message: string): void {
+  clack.log.error(message);
+}
+
+/** Indeterminate wait (the browser round trip); stop it before printing more. */
+export function spin(message: string): { stop: (message?: string) => void } {
+  const spinner = clack.spinner();
+  spinner.start(message);
+  return spinner;
+}
+
 export function abort(what: string): number {
   clack.cancel(`Cancelled. ${what} left unchanged.`);
   return 1;

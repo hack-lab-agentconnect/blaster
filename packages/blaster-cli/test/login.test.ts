@@ -77,14 +77,17 @@ describe("buildBrowserCommand", () => {
     "https://blaster-web-nine.vercel.app/login?state=st-1&code_challenge=ch-1&exchange=" +
     encodeURIComponent("http://127.0.0.1:5555/exchange");
 
-  test("Windows passes one command line so cmd keeps every query parameter", () => {
-    // Bare, cmd.exe splits on & and the browser opens ?state=... alone;
-    // pre-quoted, the spawn layer re-escapes the quotes and cmd chokes on the
-    // backslash. Either way no exchange reaches the page and the terminal
-    // waits out the timeout.
+  test("Windows goes through ShellExecute with the URL base64-encoded", () => {
+    // Every cmd recipe breaks on a real authorize URL: bare splits the query
+    // on & (the browser opens ?state=... alone and the terminal waits out the
+    // timeout), and pre-quoted gets re-escaped by the spawn layer into a
+    // backslash cmd chokes on. -EncodedCommand crosses argv as alphanumerics,
+    // so no layer ever reinterprets the URL.
     const { command, args } = buildBrowserCommand(url, "win32");
-    expect(command).toBe("cmd");
-    expect(args).toEqual(["/d", "/s", "/c", `start "" "${url}"`]);
+    expect(command).toBe("powershell");
+    expect(args.slice(0, 3)).toEqual(["-NoProfile", "-NonInteractive", "-EncodedCommand"]);
+    const decoded = Buffer.from(args[3], "base64").toString("utf16le");
+    expect(decoded).toBe(`Start-Process '${url}'`);
   });
 
   test("macOS and Linux take the URL as a single argv entry", () => {
