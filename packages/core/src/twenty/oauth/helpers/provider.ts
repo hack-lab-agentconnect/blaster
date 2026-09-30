@@ -4,12 +4,24 @@
  * One object holding everything a surface needs to talk to Twenty as an
  * OAuth provider: client identity, endpoint discovery (cached per instance),
  * and the four operations (authorize URL, code exchange, refresh,
- * introspection). The Hono API owns the single confidential instance (it
- * holds the client secret); the CLI and web layers either call through it
- * or construct a public instance with `clientSecret: null`.
+ * introspection). All transport goes through the runtime-agnostic functions in
+ * `oauth.ts`, so this provider works in Node, browsers, and Convex actions
+ * unchanged.
  *
- * All transport goes through the runtime-agnostic functions in `oauth.ts`,
- * so this provider works in Node, browsers, and Convex actions unchanged.
+ * The two fetches are separate on purpose, and that separation is a security
+ * property rather than a convenience. A self-hosted Twenty often sits behind an
+ * auth-guard proxy that wants HTTP basic auth, and the guard's credentials are
+ * correct for discovery and introspection. They are *actively harmful* on the
+ * token endpoint: an `Authorization: Basic` header there makes Twenty
+ * authenticate the client as a service, and it answers with an APPLICATION_ACCESS
+ * token whose `sub` is the application id and whose `userId` /
+ * `userWorkspaceId` are placeholders matching no user row. Sign-in then appears
+ * to succeed while no record is ever attributed to a person.
+ *
+ * So the token endpoint is only ever reached through `unguarded`. Wiring this
+ * wrong is not possible by omission: the caller names both fetches, and leaving
+ * `guarded` unset makes discovery fail loudly against a real guard rather than
+ * silently authenticating as a service.
  */
 
 import {
@@ -28,27 +40,42 @@ import {
 export interface TwentyProviderConfig {
   baseUrl: string;
   clientId: string;
+  /** Always null for the public PKCE client this registers. Kept for a legacy secret. */
   clientSecret: string | null;
   redirectUri: string;
   scope: string;
 }
 
-type FetchFn = typeof fetch;
+export interface TwentyProviderFetches {
+  /**
+   * Discovery, code exchange, refresh, and registration. Never carries the
+   * guard's basic credentials.
+   */
+  unguarded?: typeof fetch;
+  /**
+   * Discovery and introspection, which an auth-guard commonly protects. Omitting
+   * it falls back to `unguarded`, which fails loudly with a 401 from a real
+   * guard rather than quietly working and mis-attributing every write.
+   */
+  guarded?: typeof fetch;
+}
 
 export class TwentyOAuthProvider {
   private readonly config: TwentyProviderConfig;
-  private readonly fetchFn: FetchFn;
+  private readonly unguardedFetch: typeof fetch;
+  private readonly guardedFetch: typeof fetch;
   private cached: { baseUrl: string; endpoints: OAuthEndpoints } | null = null;
 
-  constructor(config: TwentyProviderConfig, fetchFn: FetchFn = fetch) {
+  constructor(config: TwentyProviderConfig, fetches: TwentyProviderFetches = {}) {
     this.config = config;
-    this.fetchFn = fetchFn;
+    this.unguardedFetch = fetches.unguarded ?? fetch;
+    this.guardedFetch = fetches.guarded ?? this.unguardedFetch;
   }
 
   /** Server metadata discovery, cached per base URL on this instance. */
   async endpoints(): Promise<OAuthEndpoints> {
     if (this.cached?.baseUrl === this.config.baseUrl) return this.cached.endpoints;
-    const endpoints = await discoverOAuth(this.config.baseUrl, this.fetchFn);
+    const endpoints = await discoverOAuth(this.config.baseUrl, this.guardedFetch);
     this.cached = { baseUrl: this.config.baseUrl, endpoints };
     return endpoints;
   }
@@ -72,7 +99,7 @@ export class TwentyOAuthProvider {
     if (!endpoints.registrationEndpoint) {
       throw new Error("Twenty instance publishes no registration endpoint");
     }
-    return registerClient(endpoints.registrationEndpoint, input, this.fetchFn);
+    return registerClient(endpoints.registrationEndpoint, input, this.unguardedFetch);
   }
 
   /** Redeem an authorization code. The verifier travels only here. */
@@ -86,7 +113,7 @@ export class TwentyOAuthProvider {
         verifier: input.verifier,
         auth: { clientId: this.config.clientId, clientSecret: this.config.clientSecret },
       },
-      this.fetchFn,
+      this.unguardedFetch,
     );
   }
 
@@ -99,7 +126,7 @@ export class TwentyOAuthProvider {
         refreshToken,
         auth: { clientId: this.config.clientId, clientSecret: this.config.clientSecret },
       },
-      this.fetchFn,
+      this.unguardedFetch,
     );
   }
 
@@ -119,7 +146,7 @@ export class TwentyOAuthProvider {
         token,
         auth: { clientId: this.config.clientId, clientSecret: this.config.clientSecret },
       },
-      this.fetchFn,
+      this.guardedFetch,
     );
   }
 }

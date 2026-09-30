@@ -40,7 +40,7 @@ function providerWith(fetchFn: ReturnType<typeof stubFetch>) {
       redirectUri: "https://app.example/callback",
       scope: "api profile",
     },
-    fetchFn as unknown as typeof fetch,
+    { unguarded: fetchFn as unknown as typeof fetch },
   );
 }
 
@@ -136,7 +136,7 @@ describe("TwentyOAuthProvider", () => {
         redirectUri: "https://app.example/callback",
         scope: "api",
       },
-      fetchFn as unknown as typeof fetch,
+      { unguarded: fetchFn as unknown as typeof fetch },
     );
     await provider.exchangeCode({ code: "code-1", verifier: "ver-1" });
     const tokenCall = fetchFn.mock.calls.find(([url]) => String(url).includes("/oauth/token"));

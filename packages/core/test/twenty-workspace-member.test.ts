@@ -42,7 +42,7 @@ describe("findWorkspaceMember", () => {
     expect(member?.userEmail).toBe("grace@example.com");
   });
 
-  test("resolves by the OAuth subject, which is a user id", async () => {
+  test("resolves by userId, the column a member row carries", async () => {
     const member = await findWorkspaceMember(fakeClient().client, { userId: "u-2" });
     expect(member?.id).toBe("m-2");
   });
@@ -82,25 +82,86 @@ describe("findWorkspaceMember", () => {
 });
 
 describe("resolveMemberIdentity", () => {
+  // The claims a user-authorized Twenty access token carries. `sub` is the
+  // application id and is present to prove it is never used for identity.
+  const USER_TOKEN = { sub: "app-42", userId: "u-1", userWorkspaceId: "m-1" };
+
   beforeEach(() => {
+    forgetResolvedMember("m-1");
     forgetResolvedMember("u-1");
     forgetResolvedMember("u-missing");
   });
 
-  test("resolves a token subject to a member", async () => {
-    // The OAuth `sub` is Twenty's userId, which is what a member row carries.
-    const resolved = await resolveMemberIdentity(fakeClient().client, { sub: "u-1" });
-    expect(resolved).toMatchObject({ workspaceMemberId: "m-1", userId: "u-1" });
+  test("userWorkspaceId resolves the member it names", async () => {
+    const resolved = await resolveMemberIdentity(fakeClient().client, { claims: USER_TOKEN });
+    expect(resolved).toMatchObject({ workspaceMemberId: "m-1", resolvedVia: "jwt:userWorkspaceId" });
   });
 
-  test("no sub and no email means nothing to resolve", async () => {
+  test("userId resolves when there is no userWorkspaceId", async () => {
+    const resolved = await resolveMemberIdentity(fakeClient().client, { claims: { userId: "u-2" } });
+    expect(resolved).toMatchObject({ workspaceMemberId: "m-2", resolvedVia: "jwt:userId" });
+  });
+
+  test("userWorkspaceId wins over userId when both are present", async () => {
+    // The rows disagree: m-1 belongs to u-1, u-2 belongs to m-2. The stronger
+    // claim must win rather than the one that happens to be checked first.
+    const resolved = await resolveMemberIdentity(fakeClient().client, {
+      claims: { userWorkspaceId: "m-1", userId: "u-2" },
+    });
+    expect(resolved?.workspaceMemberId).toBe("m-1");
+    expect(resolved?.resolvedVia).toBe("jwt:userWorkspaceId");
+  });
+
+  test("the application id in sub is never used as a user id", async () => {
+    // This is the bug PR 11 fixed in the dialer, and the test that would have
+    // caught it here: `sub` is the application id, so resolving by it matches
+    // no member and every record goes unattributed.
+    const resolved = await resolveMemberIdentity(fakeClient().client, {
+      claims: { sub: "app-42" },
+    });
+    expect(resolved).toBeNull();
+  });
+
+  test("an application token with placeholder claims resolves to nobody", async () => {
+    const resolved = await resolveMemberIdentity(fakeClient().client, {
+      claims: { sub: "app-42", userId: "00000000-0000-0000-0000-000000000000" },
+    });
+    expect(resolved).toBeNull();
+  });
+
+  test("an email claim is the compatibility fallback", async () => {
+    const resolved = await resolveMemberIdentity(fakeClient().client, {
+      introspectionClaims: { email: "grace@example.com", scope: "api profile" },
+    });
+    expect(resolved).toMatchObject({ workspaceMemberId: "m-2", resolvedVia: "claim:email" });
+  });
+
+  test("a claim whose value merely looks email-ish is used, because the field name varies", async () => {
+    const resolved = await resolveMemberIdentity(fakeClient().client, {
+      introspectionClaims: { someUndocumentedField: "ada@example.com" },
+    });
+    expect(resolved?.workspaceMemberId).toBe("m-1");
+  });
+
+  test("the jwt claims are preferred over an email claim", async () => {
+    const resolved = await resolveMemberIdentity(fakeClient().client, {
+      claims: { userId: "u-2" },
+      introspectionClaims: { email: "ada@example.com" },
+    });
+    expect(resolved?.workspaceMemberId).toBe("m-2");
+  });
+
+  test("no claims and no email means nothing to resolve, without reading", async () => {
     const { client, listAll } = fakeClient();
     expect(await resolveMemberIdentity(client, {})).toBeNull();
+    expect(await resolveMemberIdentity(client, { claims: null, introspectionClaims: {} })).toBeNull();
     expect(listAll).not.toHaveBeenCalled();
   });
 
-  test("an unknown subject resolves to null, which callers read as unattributed", async () => {
-    expect(await resolveMemberIdentity(fakeClient().client, { sub: "u-missing" })).toBeNull();
+  test("an unknown userId resolves to null, which callers read as unattributed", async () => {
+    expect(
+      await resolveMemberIdentity(fakeClient().client, { claims: { userId: "u-missing" } }),
+    ).toBeNull();
   });
 
   test("Twenty being unreachable degrades to null instead of failing the request", async () => {
@@ -109,21 +170,21 @@ describe("resolveMemberIdentity", () => {
         throw new Error("503 from Twenty");
       }),
     } as unknown as TwentyClient;
-    expect(await resolveMemberIdentity(client, { sub: "u-1" })).toBeNull();
+    expect(await resolveMemberIdentity(client, { claims: USER_TOKEN })).toBeNull();
   });
 
-  test("the sub to member mapping is cached across requests", async () => {
+  test("the resolution is cached across requests", async () => {
     const { client, listAll } = fakeClient();
-    await resolveMemberIdentity(client, { sub: "u-1" });
-    await resolveMemberIdentity(client, { sub: "u-1" });
+    await resolveMemberIdentity(client, { claims: USER_TOKEN });
+    await resolveMemberIdentity(client, { claims: USER_TOKEN });
     expect(listAll).toHaveBeenCalledTimes(1);
   });
 
   test("forgetting a resolution forces the next request to ask again", async () => {
     const { client, listAll } = fakeClient();
-    await resolveMemberIdentity(client, { sub: "u-1" });
-    forgetResolvedMember("u-1");
-    await resolveMemberIdentity(client, { sub: "u-1" });
+    await resolveMemberIdentity(client, { claims: USER_TOKEN });
+    forgetResolvedMember("m-1");
+    await resolveMemberIdentity(client, { claims: USER_TOKEN });
     expect(listAll).toHaveBeenCalledTimes(2);
   });
 });

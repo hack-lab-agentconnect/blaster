@@ -88,7 +88,7 @@ describe("provider behind a guard", () => {
       return new Response(JSON.stringify(DISCOVERY), { headers: { "Content-Type": "application/json" } });
     }) as unknown as typeof fetch;
 
-    const provider = new TwentyOAuthProvider(CONFIG, withBasicAuth({ user: "twenty", password: "guard" }, guarded));
+    const provider = new TwentyOAuthProvider(CONFIG, { guarded: withBasicAuth({ user: "twenty", password: "guard" }, guarded) });
     const endpoints = await provider.endpoints();
 
     expect(endpoints.tokenEndpoint).toBe("https://twenty.example/oauth/token");
@@ -104,9 +104,9 @@ describe("provider behind a guard", () => {
         : new Response(JSON.stringify(DISCOVERY), { headers: { "Content-Type": "application/json" } });
     }) as unknown as typeof fetch;
 
-    await expect(new TwentyOAuthProvider(CONFIG, guardedFetch).endpoints()).rejects.toThrow(/401/);
+    await expect(new TwentyOAuthProvider(CONFIG, { unguarded: guardedFetch }).endpoints()).rejects.toThrow(/401/);
     await expect(
-      new TwentyOAuthProvider(CONFIG, withBasicAuth({ user: "twenty", password: "guard" }, guardedFetch)).endpoints(),
+      new TwentyOAuthProvider(CONFIG, { guarded: withBasicAuth({ user: "twenty", password: "guard" }, guardedFetch) }).endpoints(),
     ).resolves.toMatchObject({ authorizationEndpoint: "https://twenty.example/oauth/authorize" });
   });
 });

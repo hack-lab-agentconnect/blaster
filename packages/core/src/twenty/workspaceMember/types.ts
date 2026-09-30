@@ -36,8 +36,17 @@ export interface MemberLookup {
  */
 export interface ResolvedMember {
   workspaceMemberId: string;
-  /** Twenty's user id, kept because an OAuth `sub` is one. */
+  /** Twenty's user id, which is what an access token's `userId` claim is. */
   userId: string | null;
   email: string | null;
   name: string | null;
+  /**
+   * Which claim identified the member, for diagnosis.
+   *
+   * Reported rather than logged only: an application token resolves to nothing
+   * at all, and the difference between "not a member" and "the token names no
+   * human" is the difference between a permissions problem and a misconfigured
+   * proxy. See docs/identity.md.
+   */
+  resolvedVia: "jwt:userWorkspaceId" | "jwt:userId" | "claim:email" | null;
 }

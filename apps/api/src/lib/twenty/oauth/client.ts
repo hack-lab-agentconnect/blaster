@@ -27,9 +27,15 @@ export function twentyProvider(config: OAuthServerConfig): TwentyOAuthProvider {
           redirectUri: config.redirectUri,
           scope: config.scope,
         },
-        // Discovery, token, and introspection calls go to paths an
-        // auth-guard proxy protects, so they carry the gate credentials too.
-        config.basicAuth ? withBasicAuth(config.basicAuth) : fetch,
+        {
+          // The guard's credentials are for discovery and introspection only.
+          // Sending them to /oauth/token makes Twenty authenticate the client as
+          // a service and hand back an APPLICATION_ACCESS token with no human in
+          // it, which signs in fine and attributes nothing. See
+          // docs/identity.md, "the wall must not cover the token endpoint".
+          unguarded: fetch,
+          guarded: config.basicAuth ? withBasicAuth(config.basicAuth, fetch) : fetch,
+        },
       ),
     };
   }

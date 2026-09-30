@@ -23,6 +23,12 @@ Two consequences worth internalising:
   no `updatedBy` field, because a type that promises something the API does not
   do is worse than an absent one.
 
+And one that is the whole reason this needed a fix: **`sub` is not the
+operator.** Twenty reports it as the *application* id, so resolving a member
+from it matches no row and nothing is ever attributed. The identity is in the
+access token's claims, not in the introspection subject. See
+[docs/identity.md](identity.md).
+
 The same word names two different things on the wire, which is the detail that
 eats an afternoon: a Twenty **relation** is declared under its base name
 (`agencyPhone`) and addressed in a REST write as `agencyPhoneId`. See
@@ -33,10 +39,11 @@ eats an afternoon: a Twenty **relation** is declared under its base name
 ```text
 operator signs in
   -> Twenty issues an OAuth access token
-  -> the API introspects it (that is the auth check) and reads its `sub`
-  -> `sub` is Twenty's userId, which resolves to a workspaceMember
+  -> the API introspects it (that is the auth check)
+  -> the access token's claims are read: userWorkspaceId, then userId
+  -> either resolves to a workspaceMember
   -> the member id rides on the request
-  -> `resolveActor` turns it into { createdBy: { source, workspaceMemberId, name } }
+  -> resolveActor turns it into { createdBy: { source, workspaceMemberId, name } }
   -> the write carries that actor
 ```
 
@@ -44,19 +51,24 @@ Each step lives in one place:
 
 | Step | Where |
 | --- | --- |
-| Introspect the token, read `sub` | `twenty/oauth` (`introspectToken`) |
-| Turn `sub` into a `workspaceMember` | `twenty/workspaceMember` (`resolveMemberIdentity`) |
-| Build the actor | `twenty/actor` (`resolveActor`) |
+| Introspect the token (the auth check) | `twenty/oauth` (`introspectToken`) |
+| Read the token's claims | `twenty/oauth` (`decodeJwtPayload`) |
+| Turn those claims into a `workspaceMember` | `twenty/workspaceMember` (`resolveMemberIdentity`) |
 | Put it on the request | `apps/api/.../auth/operator` (`requireOperator`) |
 | Attach it to a write | `twenty/client` (`create`, `update`) |
 
 `workspaceMembers` is readable over the same REST surface as everything else, so
 this needs no database access and no second credential.
 
-Resolution is strongest-identifier-first: `workspaceMemberId` is a primary key,
-`userId` is what `sub` resolves to, and email is last because it is the only one
-a human can retype. Email is compared case-insensitively, since the two systems
-do not agree on case.
+Resolution is strongest-identifier-first: `userWorkspaceId` is a member id,
+`userId` is what a member row carries in its `userId` column, and an email-shaped
+claim is the last resort because it is the only one a human can retype. Email is
+compared case-insensitively, since the two systems do not agree on case.
+
+The token is decoded without verifying its signature. That is sound only because
+introspection has already proved the token live and is the trust boundary — and
+Twenty publishes no JWKS, so there is nothing to verify against regardless. It is
+not a general licence to trust a JWT.
 
 ## Attribution is best-effort, and that is deliberate
 

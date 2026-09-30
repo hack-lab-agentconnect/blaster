@@ -55,12 +55,46 @@ export interface Introspection {
   scope: string | null;
   expiresAt: number | null;
   /**
-   * The subject: Twenty's user id, which is what a `workspaceMember` is looked
-   * up by. Kept separate from `username`, which is a display string and is not
-   * guaranteed to be the email or to be unique.
+   * RFC 7662 subject.
+   *
+   * This is NOT the human. For a Twenty application access token it is the
+   * *application* id, and an application token's `userId` / `userWorkspaceId`
+   * are placeholders that match no user row. Resolving a member from `sub` is
+   * the bug PR 11 fixed in the dialer; read the identity from the access token
+   * with `decodeJwtPayload` instead. See `twenty/workspaceMember`.
    */
   sub: string | null;
   email: string | null;
+  /**
+   * The whole RFC 7662 response, unfiltered.
+   *
+   * Twenty publishes no `userinfo_endpoint` and no current-user query, so this
+   * is the only view of the token besides the JWT itself. It is kept rather
+   * than narrowed to a few named fields because which claim carries the
+   * sign-in email varies by deployment, and `emailsFromClaims` reads whatever
+   * is present instead of trusting one field this instance leaves empty.
+   */
+  claims: Record<string, unknown>;
+}
+
+/**
+ * The claims a user-authorized Twenty access token carries.
+ *
+ * `sub` is listed for completeness and is deliberately not used for identity:
+ * see `Introspection.sub`.
+ */
+export interface TwentyAccessTokenClaims {
+  sub?: string;
+  applicationId?: string;
+  workspaceId?: string;
+  /** The authenticated Twenty user. Resolves a `workspaceMember.userId`. */
+  userId?: string;
+  /** The workspace member the token was minted in. Resolves a member id. */
+  userWorkspaceId?: string;
+  type?: string;
+  exp?: number;
+  iat?: number;
+  [key: string]: unknown;
 }
 
 type FetchFn = typeof fetch;
@@ -89,6 +123,80 @@ export function base64UrlEncode(bytes: Uint8Array): string {
     out += i + 2 < bytes.length ? BASE64_ALPHABET[triple & 63] : "";
   }
   return out.replace(/\+/g, "-").replace(/\//g, "_");
+}
+
+/**
+ * Decode a JWT payload without verifying its signature.
+ *
+ * This is safe here for one specific reason and must not be read as a general
+ * licence to trust a JWT: introspection has already established that the token
+ * is live, and introspection is the trust boundary. Twenty publishes no JWKS, so
+ * there is nothing to verify against even if we wanted to.
+ *
+ * It is here because the human identity is only in the token. Introspection
+ * reports `sub` as the *application* id, which is useless for attribution; the
+ * `userId` and `userWorkspaceId` claims are what actually name a person.
+ *
+ * Hand-rolled from the alphabet, like `base64UrlEncode` above, so it needs no
+ * Buffer and no atob and behaves identically in Node, a browser, and Convex.
+ */
+export function decodeJwtPayload<T extends Record<string, unknown>>(token: string): T {
+  const parts = token.split(".");
+  if (parts.length !== 3) {
+    throw new TwentyOAuthError(502, "Twenty access token is not a JWT");
+  }
+
+  const encoded = parts[1] ?? "";
+  const normalized = encoded.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+
+  // "=" is the padding terminator, not an alphabet member, so it is mapped to
+  // the sentinel 64 rather than looked up. Looking it up yields -1, which is
+  // what makes a decoder reject every payload whose length is not a multiple of
+  // 3 -- and a token payload almost never is, so "pad, then look it up" fails
+  // on most real tokens and works only by luck.
+  const value = (char: string | undefined): number =>
+    char === undefined || char === "=" ? 64 : BASE64_ALPHABET.indexOf(char);
+
+  const bytes: number[] = [];
+  for (let i = 0; i < padded.length; i += 4) {
+    const a = value(padded[i]);
+    const b = value(padded[i + 1]);
+    const c = value(padded[i + 2]);
+    const d = value(padded[i + 3]);
+    if (a < 0 || b < 0 || c < 0 || d < 0) {
+      throw new TwentyOAuthError(502, "Twenty access token has an invalid JWT payload");
+    }
+    bytes.push((a << 2) | (b >> 4));
+    if (c !== 64) bytes.push(((b & 15) << 4) | (c >> 2));
+    if (d !== 64) bytes.push(((c & 3) << 6) | d);
+  }
+
+  try {
+    return JSON.parse(new TextDecoder().decode(new Uint8Array(bytes))) as T;
+  } catch {
+    throw new TwentyOAuthError(502, "Twenty access token has an invalid JWT payload");
+  }
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Every email-shaped string in a set of token claims.
+ *
+ * A deployment is under no obligation to put the sign-in address in a named
+ * claim, and this one does not reliably, so any claim that looks like an email
+ * is taken. Insertion order is preserved and duplicates dropped, so a token
+ * carrying two email claims always resolves the same way on every run.
+ */
+export function emailsFromClaims(claims: Record<string, unknown> | null | undefined): string[] {
+  const found: string[] = [];
+  for (const value of Object.values(claims ?? {})) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (EMAIL_RE.test(trimmed) && !found.includes(trimmed)) found.push(trimmed);
+  }
+  return found;
 }
 
 /** Filter crypto.getRandomValues through an injectable source for tests. */
@@ -140,7 +248,20 @@ export async function discoverOAuth(baseUrl: string, fetchFn: FetchFn = fetch): 
   };
 }
 
-/** RFC 7591 dynamic client registration. The secret is shown once. */
+/**
+ * RFC 7591 dynamic client registration, as a public PKCE client.
+ *
+ * `token_endpoint_auth_method: "none"` is the whole point, and getting it wrong
+ * is not cosmetic. A client registered as `client_secret_post` is confidential:
+ * the token endpoint then authenticates the *client* rather than the user, and
+ * Twenty answers with an APPLICATION_ACCESS token whose `sub` is the
+ * application id and whose `userId` / `userWorkspaceId` are placeholders that
+ * match no user row. Sign-in appears to work and no record is ever attributed
+ * to a person.
+ *
+ * A public client has no secret to keep, which is also why `clientAuthBody`
+ * omits it rather than sending an empty value.
+ */
 export async function registerClient(
   registrationEndpoint: string,
   input: { clientName: string; redirectUris: string[] },
@@ -153,7 +274,7 @@ export async function registerClient(
       client_name: input.clientName,
       redirect_uris: input.redirectUris,
       grant_types: ["authorization_code", "refresh_token"],
-      token_endpoint_auth_method: "client_secret_post",
+      token_endpoint_auth_method: "none",
     }),
   });
   if (!response.ok) {
@@ -165,7 +286,9 @@ export async function registerClient(
   }
   return {
     clientId: body.client_id,
-    clientSecret: typeof body.client_secret === "string" ? body.client_secret : null,
+    // A public client is issued no secret. One that arrives anyway is ignored
+    // rather than stored, so a deployment cannot drift back to sending it.
+    clientSecret: null,
   };
 }
 
@@ -287,6 +410,7 @@ export async function introspectToken(
     expiresAt: typeof body.exp === "number" ? body.exp : null,
     sub: typeof body.sub === "string" ? body.sub : null,
     email: typeof body.email === "string" ? body.email : null,
+    claims: body,
   };
 }
 

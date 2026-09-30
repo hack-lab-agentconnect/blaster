@@ -37,9 +37,9 @@ export interface WriteActor {
  * failed.
  */
 export interface ActorIdentity {
-  /** Exact `workspaceMember` id, when the caller resolved one. */
+  /** Exact `workspaceMember` id, resolved from the access token. */
   workspaceMemberId?: string | null;
-  /** The OAuth `sub`, which is a Twenty user id rather than a member id. */
+  /** Twenty's user id, from the token's `userId` claim. */
   userId?: string | null;
   email?: string | null;
   /** A display name the caller already had, used if Twenty cannot be asked. */

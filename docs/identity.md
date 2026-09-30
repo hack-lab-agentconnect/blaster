@@ -22,18 +22,63 @@ path. That guard is "the wall", and passing it is the subject of this page.
 | Credential | Carried as | Covers | Where it lives |
 | --- | --- | --- | --- |
 | `TWENTY_API_KEY` | `Authorization: Bearer` | `/rest/*` and `/graphql` — every record read and write | server only |
-| `TWENTY_BASIC_USER` / `TWENTY_BASIC_PASSWORD` | `Authorization: Basic` | `/authorize`, `/oauth/*`, `/.well-known/*` — the OAuth endpoints | server only |
+| `TWENTY_BASIC_USER` / `TWENTY_BASIC_PASSWORD` | `Authorization: Basic` | `/.well-known/*` and `/oauth/introspect` — the endpoints a guard commonly protects | server only |
 
 The bearer token is the workspace's own key: it identifies the workspace, not
 the operator, and it is what the record APIs require. The basic credentials
 identify the guard, not the workspace, and a guard normally *exempts* `/rest`
 and `/graphql` precisely so the record APIs work without them.
 
-This is the part that confuses people. The bearer token does not get you past
-the wall, and the basic credentials do not let you read records. A deployment
-with both needs both, on different paths:
+This is the part that confuses people. The bearer token does not get you past the
+wall, and the basic credentials do not let you read records. A deployment with
+both needs both, on different paths:
 
 ```
+Operator browser  --Bearer-->  record APIs
+Operator browser  --Basic---->  the wall, then Twenty's own sign-in
+Blaster API       --Basic---->  discovery, introspection
+Blaster API       --bare----->  /oauth/token and /oauth/register
+Blaster API       --Bearer-->  record APIs (TWENTY_API_KEY)
+```
+
+## The wall must not cover the token endpoint
+
+**This is the single most important thing on the page, and getting it wrong is
+invisible.** An `Authorization: Basic` header reaching `/authorize` or
+`/oauth/token` makes Twenty treat the caller as a *service* rather than a user.
+It then issues an `APPLICATION_ACCESS` token whose `sub` is the application id
+and whose `userId` / `userWorkspaceId` are placeholders that match no user row.
+No human is left in the token, so:
+
+- sign-in appears to work completely;
+- `GET /api/auth/me` reports `active: true`;
+- and **no record is ever attributed to a person** — every row shows the
+  workspace's API actor.
+
+Blaster's API therefore sends the guard's credentials to discovery and
+introspection but never to the token endpoint
+(`twenty/oauth/helpers/provider.ts`, and the test
+`packages/core/test/twenty-public-pkce.test.ts`). On the proxy side, `/authorize`
+and `/oauth/token` must be exempt from the gate *and* have the header stripped,
+because a browser that has cached the wall's basic credentials will send them
+without being asked:
+
+```nginx
+location = /authorize {
+  proxy_pass http://127.0.0.1:3005;
+  include /etc/nginx/proxy-params.conf;   # forwards Authorization $upstream_authorization
+  proxy_set_header Authorization "";
+}
+location ^~ /oauth/token {
+  proxy_pass http://127.0.0.1:3005;
+  include /etc/nginx/proxy-params.conf;
+  proxy_set_header Authorization "";
+}
+```
+
+If sign-in starts failing with a 401 at `/oauth/token` after this change, the
+exemption is missing. That is the intended failure: it is loud, unlike the bug it
+replaces.
 Operator browser  --Bearer-->  record APIs
 Operator browser  --Basic---->  the wall, then Twenty's own sign-in
 Blaster API       --Basic---->  discovery, token exchange, introspection
@@ -57,11 +102,12 @@ web app                        Blaster API                    Twenty (behind the
    |                              |<-- operator clicks Authorize      |
    |<-- /callback?code=...&state=... ---------------------------------|
    |                              |                                   |
-   |-- POST /api/auth/token ----->|-- Basic: POST /oauth/token ------->|
+   |-- POST /api/auth/token ----->|-- POST /oauth/token ----------->|
    |<-- {tokens: access, refresh}  |<-- {access_token, refresh_token} -|
    |                              |                                   |
    |-- GET /api/auth/me --------->|-- Basic: POST /oauth/introspect -->|
-   |<-- {username, scope}          |<-- {active: true, username} -----|
+   |<-- {active, memberResolved,  |<-- {active: true, ...} ----------|
+   |     workspaceMemberId, ...}  |                                   |
 ```
 
 | Route | Purpose |
@@ -69,7 +115,7 @@ web app                        Blaster API                    Twenty (behind the
 | `GET /api/auth/config` | Public discovery for the SPA: authorize endpoint, client id, redirect URI, scope |
 | `POST /api/auth/token` | Exchange `code` + PKCE `verifier` for Twenty tokens (server-side only) |
 | `POST /api/auth/refresh` | Rotate a Twenty access token from a refresh token |
-| `GET /api/auth/me` | Introspect a presented Bearer token; 401 when it is not active |
+| `GET /api/auth/me` | Introspect a presented Bearer token and report the workspace member it resolved to |
 
 `blaster login` drives the same flow from the terminal: it prints a URL, the
 browser completes the round trip through `/login`, and the tokens are written to
@@ -84,9 +130,36 @@ the CLI's session file.
 | `TWENTY_API_KEY` | Blaster API and Convex | per Twenty's key | server environment only |
 | Guard basic credentials | Blaster API | per deployment | server environment only |
 
-The client secret, if the client is confidential, never leaves the API. The
-public PKCE client is the normal case: it is registered with
-`POST {TWENTY_BASE_URL}/oauth/register` and needs no secret at all.
+The client is a **public PKCE client**: registered with
+`POST {TWENTY_BASE_URL}/oauth/register` and `token_endpoint_auth_method: none`,
+so there is no secret to keep, rotate, or leak. `registerClient` ignores a
+`client_secret` even if the instance returns one, so a deployment cannot drift
+back into sending it. A confidential client (`client_secret_post`) is not a
+stricter version of this — it is a different, broken flow, because the token
+endpoint then authenticates the client instead of the user and answers with an
+application token. See "The wall must not cover the token endpoint".
+
+## Who the token belongs to
+
+`sub` is **not** the operator. Twenty reports it as the *application* id, so it
+matches no `workspaceMember` row and must never be used to resolve one. The
+identity lives in the access token's own claims, in this order:
+
+1. `userWorkspaceId` — the member the token was minted in. Exact, and survives
+   an email change.
+2. `userId` — the Twenty user, who can hold more than one member.
+3. any email-shaped introspection claim — a compatibility fallback, because which
+   claim carries the address varies by deployment.
+
+The token is decoded without verifying its signature, and that is deliberate:
+introspection has already established that the token is live, and introspection
+is the trust boundary. Twenty publishes no JWKS, so there is nothing to verify
+against anyway. See `twenty/oauth/helpers/oauth.ts`.
+
+`GET /api/auth/me` reports which of those matched as `resolvedVia`, and sets
+`applicationToken: true` when the token names no user at all. That pair of fields
+is the fastest way to tell "this operator is not a member" apart from "this
+deployment is handing out application tokens".
 
 ## Configuring it
 
@@ -125,8 +198,12 @@ Two rules that are not obvious:
 
 | Symptom | Meaning | Fix |
 | --- | --- | --- |
+| `memberResolved: false` and `applicationToken: true` from `/api/auth/me` | The token names no user, so nothing can be attributed. Almost always the wall presenting basic credentials to the token endpoint | Exempt `/authorize` and `/oauth/token` from the guard and strip the header; see above |
+| `memberResolved: false`, `applicationToken: false` | A real user token whose `userId` / `userWorkspaceId` matches no member | Ask a workspace admin to confirm the operator is a member of *this* workspace |
+| Every record shows the workspace API actor instead of a person | Same as the first row: the token is an application token | Fix the proxy, then re-sign-in so a fresh token is minted |
 | "OAuth state mismatch. Start sign-in again." | The PKCE state did not survive the redirect, or an old bundle is running | Restart the dev server, sign in again |
 | Native `user:pass` prompt loops, or 401 at `/authorize` | The guard's credentials are wrong or expired | Check `TWENTY_BASIC_USER` / `TWENTY_BASIC_PASSWORD` |
+| 401 at `/oauth/token` from the API | The token endpoint is behind the guard and has not been exempted | Exempt it; this is the intended, loud failure |
 | "Twenty OAuth is not configured" from `/api/auth/*` | OAuth variables are missing from the environment | Fill in the OAuth block above |
 | Consent redirects to `/callback?error=...` | The registered redirect URI does not match the dev server port | Keep port 5173, or re-register the client |
 | 401 from `/api/auth/config` | Discovery hit the guard without basic credentials | Set both basic variables |

@@ -15,20 +15,28 @@
  * The gate fails closed: no OAuth config means 503, not an open door, because
  * "we could not check" and "allowed" must never be the same answer.
  *
- * Introspection also yields the token's subject, which is a Twenty user id. That
- * is resolved to a `workspaceMember` here so the writes this request makes can be
- * attributed to the person rather than to the workspace API key. Resolution is
- * best-effort: a member that cannot be resolved leaves the request authorised but
- * unattributed, which is a metadata gap and not a reason to refuse it.
+ * Introspection establishes that a token is live, but its `sub` is the
+ * *application* id and names nobody. The person is in the access token's own
+ * claims, so they are read from there and resolved against `workspaceMembers`.
+ * Getting this backwards is silent: sign-in works, `/api/auth/me` says active,
+ * and no record is ever attributed. See docs/identity.md.
+ *
+ * An unresolved member is not fatal. The request is still authenticated, and
+ * refusing it would lock out every read route on a deployment whose proxy needs
+ * fixing. It is instead reported: `/api/auth/me` sets `memberResolved: false`,
+ * and `applicationToken: true` when the token names no user at all, which is
+ * the signature of a misconfigured auth-guard rather than of a non-member.
  */
 
 import type { Context, MiddlewareHandler } from "hono";
 import {
   TwentyClient,
+  decodeJwtPayload,
   resolveActor,
   resolveMemberIdentity,
   type ActorIdentity,
   type ResolvedMember,
+  type TwentyAccessTokenClaims,
   type WriteActor,
 } from "@blaster/core";
 import { checkOperatorToken, loadOAuthConfig } from "../../twenty/oauth/index.ts";
@@ -40,6 +48,11 @@ export interface OperatorInfo {
   scope: string | null;
   /** The member this token belongs to, or null when it resolved to none. */
   member: ResolvedMember | null;
+  /**
+   * The access token's claims, kept only so `/api/auth/me` can explain an
+   * unresolved member. Not part of the operator's identity.
+   */
+  tokenClaims: TwentyAccessTokenClaims | null;
 }
 
 /** A workspace client, or null when Twenty is not configured for this process. */
@@ -48,17 +61,33 @@ function twentyClientOrNull(): TwentyClient | null {
   return new TwentyClient();
 }
 
+/**
+ * The claims a live token carries, or null when it is not a JWT.
+ *
+ * Never throws: a token that cannot be decoded resolves no member, which the
+ * caller already handles. The alternative — failing the request — would turn an
+ * opaque token format into a lockout.
+ */
+function claimsOf(accessToken: string): TwentyAccessTokenClaims | null {
+  try {
+    return decodeJwtPayload<TwentyAccessTokenClaims>(accessToken);
+  } catch {
+    return null;
+  }
+}
+
 async function resolveMember(
-  introspection: { sub: string | null; email: string | null; username: string | null },
-): Promise<ResolvedMember | null> {
+  introspection: { claims?: Record<string, unknown>; email?: string | null },
+  accessToken: string,
+): Promise<{ member: ResolvedMember | null; claims: TwentyAccessTokenClaims | null }> {
   const client = twentyClientOrNull();
-  if (!client) return null;
-  return resolveMemberIdentity(client, {
-    sub: introspection.sub,
-    // Twenty's introspection does not always echo the email, so the username is
-    // the fallback: on a Twenty instance it is the member's login address.
-    email: introspection.email ?? introspection.username,
+  const claims = claimsOf(accessToken);
+  if (!client) return { member: null, claims };
+  const member = await resolveMemberIdentity(client, {
+    claims,
+    introspectionClaims: introspection.claims,
   });
+  return { member, claims };
 }
 
 async function operatorFromRequest(c: Context): Promise<OperatorInfo | null> {
@@ -69,11 +98,8 @@ async function operatorFromRequest(c: Context): Promise<OperatorInfo | null> {
   if (!config) return null;
   const result = await checkOperatorToken(config, token);
   if (!result.active) return null;
-  return {
-    username: result.username,
-    scope: result.scope,
-    member: await resolveMember(result),
-  };
+  const { member, claims } = await resolveMember(result, token);
+  return { username: result.username, scope: result.scope, member, tokenClaims: claims };
 }
 
 /** Require a live operator token. Unauthenticated callers get 401. */

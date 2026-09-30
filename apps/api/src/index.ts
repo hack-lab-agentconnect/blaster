@@ -21,6 +21,7 @@ import {
   DEFAULT_OPTIONS,
   TwentyClient,
   createNumberOrder,
+  decodeJwtPayload,
   describeEnv,
   evaluateEligibility,
   filtersToDsl,
@@ -34,6 +35,7 @@ import {
   planPhoneSync,
   profileBoundToNumber,
   prospectFields,
+  resolveMemberIdentity,
   resolveMessagingProfile,
   searchAvailableNumbers,
   searchProspectsPage,
@@ -50,6 +52,7 @@ import {
   type Recipient,
   type SequenceDraft,
   type SequenceStepDraft,
+  type TwentyAccessTokenClaims,
 } from "@blaster/core";
 import { TelnyxError, listMessagingProfiles, sendMessage } from "./lib/telnyx/messaging/index.ts";
 import { readBreakdownFrom, twentyReader } from "./lib/pipeline/breakdown/index.ts";
@@ -102,6 +105,21 @@ function fail(
 
 function twentyClient(): TwentyClient {
   return new TwentyClient();
+}
+
+/**
+ * The access token's claims, or null when it is not a JWT.
+ *
+ * Introspection has already proved the token live by the time this is used, and
+ * it is the trust boundary: Twenty publishes no JWKS, so there is nothing to
+ * verify the signature against even if we wanted to. See `decodeJwtPayload`.
+ */
+function claimsOfToken(token: string): TwentyAccessTokenClaims | null {
+  try {
+    return decodeJwtPayload<TwentyAccessTokenClaims>(token);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -741,6 +759,16 @@ app.post("/api/auth/refresh", async (c) => {
 });
 
 /** Who is calling: introspect the Bearer token, 401 when it is not live. */
+/**
+ * Who is calling: introspect the Bearer token, 401 when it is not live.
+ *
+ * Also reports which workspace member the token resolved to, because that is
+ * the answer to "whose records am I about to write". `memberResolved: false`
+ * with an `applicationToken: true` is the signature of a deployment where the
+ * auth-guard is presenting the token endpoint with basic credentials: Twenty
+ * then issues an APPLICATION_ACCESS token with no human in it, sign-in appears
+ * to work, and nothing is ever attributed. See docs/identity.md.
+ */
 app.get("/api/auth/me", async (c) => {
   const config = loadOAuthConfig();
   if (!config) return c.json({ error: "Twenty OAuth is not configured" }, 500);
@@ -750,7 +778,28 @@ app.get("/api/auth/me", async (c) => {
   try {
     const result = await checkOperatorToken(config, token);
     if (!result.active) return c.json({ error: "Token is not active" }, 401);
-    return c.json({ active: true, username: result.username, scope: result.scope });
+    const claims = claimsOfToken(token);
+    const member = process.env.TWENTY_BASE_URL && process.env.TWENTY_API_KEY
+      ? await resolveMemberIdentity(new TwentyClient(), { claims, introspectionClaims: result.claims })
+      : null;
+    // A token that names no user is an application token, not an unattributed
+    // human. The two need different fixes, so they are reported differently.
+    const applicationToken = !claims?.userId && !claims?.userWorkspaceId;
+    return c.json({
+      active: true,
+      username: result.username,
+      scope: result.scope,
+      memberResolved: member !== null,
+      resolvedVia: member?.resolvedVia ?? null,
+      applicationToken,
+      ...(member
+        ? {
+            workspaceMemberId: member.workspaceMemberId,
+            memberName: member.name,
+            memberEmail: member.email,
+          }
+        : {}),
+    });
   } catch (error) {
     return fail(c, error, "Failed to validate the operator token", 502);
   }
