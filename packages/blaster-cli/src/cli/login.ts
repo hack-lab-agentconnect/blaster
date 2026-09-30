@@ -368,21 +368,27 @@ export function runExchangeServer(options: {
   };
 }
 
+/**
+ * The OS command that opens a URL in the browser, split out for testing.
+ *
+ * Windows needs the URL quoted: cmd.exe splits an unquoted command line on
+ * `&`, which silently truncated the authorize URL to just `?state=...` and
+ * dropped the exchange the terminal waits on. Every other platform takes the
+ * URL as a single argv entry and needs no quoting.
+ */
+export function buildBrowserCommand(url: string, platform: string): { command: string; args: string[] } {
+  if (platform === "win32") {
+    return { command: "cmd", args: ["/c", "start", "", `"${url}"`] };
+  }
+  if (platform === "darwin") {
+    return { command: "open", args: [url] };
+  }
+  return { command: "xdg-open", args: [url] };
+}
+
 function openBrowser(url: string): boolean {
   try {
-    const platform = process.platform;
-    let command: string;
-    let args: string[];
-    if (platform === "win32") {
-      command = "cmd";
-      args = ["/c", "start", "", url];
-    } else if (platform === "darwin") {
-      command = "open";
-      args = [url];
-    } else {
-      command = "xdg-open";
-      args = [url];
-    }
+    const { command, args } = buildBrowserCommand(url, process.platform);
     const child = spawn(command, args, { stdio: "ignore", detached: true });
     child.unref();
     return true;

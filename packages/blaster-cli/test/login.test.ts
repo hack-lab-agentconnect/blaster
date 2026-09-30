@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { buildAuthorizeUrl, checkCliHandoff } from "../src/cli/login.ts";
+import { buildAuthorizeUrl, buildBrowserCommand, checkCliHandoff } from "../src/cli/login.ts";
 /**
  * The web-URL check that runs before an operator is sent to a browser.
  *
@@ -69,5 +69,24 @@ describe("checkCliHandoff", () => {
     }) as unknown as typeof fetch;
     await checkCliHandoff("http://localhost:5173/", spy);
     expect(seen[0]).toBe("http://localhost:5173/login");
+  });
+});
+
+describe("buildBrowserCommand", () => {
+  const url =
+    "https://blaster-web-nine.vercel.app/login?state=st-1&code_challenge=ch-1&exchange=" +
+    encodeURIComponent("http://127.0.0.1:5555/exchange");
+
+  test("Windows quotes the URL so cmd keeps every query parameter", () => {
+    // Unquoted, cmd.exe splits on & and the browser opens ?state=... alone:
+    // no exchange reaches the page and the terminal waits out the timeout.
+    const { command, args } = buildBrowserCommand(url, "win32");
+    expect(command).toBe("cmd");
+    expect(args).toEqual(["/c", "start", "", `"${url}"`]);
+  });
+
+  test("macOS and Linux take the URL as a single argv entry", () => {
+    expect(buildBrowserCommand(url, "darwin")).toEqual({ command: "open", args: [url] });
+    expect(buildBrowserCommand(url, "linux")).toEqual({ command: "xdg-open", args: [url] });
   });
 });

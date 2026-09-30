@@ -1,33 +1,28 @@
 import { ConvexReactClient } from "convex/react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { AlertCircle } from "lucide-react";
 import { TropicalTideBackground } from "../components/background-gradient/tropical-tide-background";
-import { Spokes } from "../components/ui/Spinner";
 import { finishSignIn, loadSession } from "../lib/auth/session";
 import {
   clearCliExchange,
   postCliExchange,
   readCliExchange,
   readOAuthReturn,
-  type CliExchangeResult,
 } from "../lib/auth/cli-handoff";
 
 /**
- * Where Twenty returns.
+ * Where Twenty returns: a plain authentication confirmation.
  *
- * The plain sign-in states match open-twenty-dialer's callback page exactly:
- * a spinner while the code is redeemed, an error box with a way back on
- * failure. A `blaster login` run parks a return marker, so the code is
- * redeemed and then the tokens are handed to the terminal's loopback rather
- * than being kept in the browser alone, and those handoff states reuse the
- * same card and the same notice language.
+ * The card carries only the authentication status and a way back to the main
+ * page. A `blaster login` run parks a return marker, so after the code is
+ * redeemed the tokens are handed to the terminal's loopback in the
+ * background; that handoff reports through the same status line rather than
+ * its own UI.
  */
 export function CallbackPage() {
   const navigate = useNavigate();
   const [problem, setProblem] = useState<string | null>(null);
-  const [exchange, setExchange] = useState(() => readCliExchange());
-  const [result, setResult] = useState<CliExchangeResult | null>(null);
+  const [done, setDone] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -39,22 +34,22 @@ export function CallbackPage() {
           navigate(readOAuthReturn(), { replace: true });
           return;
         }
-        setExchange(pending);
         // A CLI run cannot fall back to the browser session: the whole point is
-        // that the terminal gets the tokens. So this reports the outcome and
-        // stays put rather than navigating away from it.
+        // that the terminal gets the tokens. The handoff stays silent; the
+        // card below reports the outcome the same way for every sign-in.
         const session = loadSession();
         if (!session) {
-          setProblem("Signed in, but this browser has no session to hand over. Run blaster login again.");
+          setProblem("There was an issue connecting.");
           return;
         }
         const outcome = await postCliExchange(pending, session.tokens);
         if (cancelled) return;
         clearCliExchange();
-        setResult(outcome);
+        if (outcome.kind === "ok") setDone(true);
+        else setProblem("There was an issue connecting.");
       })
-      .catch((error: unknown) => {
-        if (!cancelled) setProblem(error instanceof Error ? error.message : String(error));
+      .catch(() => {
+        if (!cancelled) setProblem("There was an issue connecting.");
       });
     return () => {
       cancelled = true;
@@ -66,40 +61,18 @@ export function CallbackPage() {
       <div className="w-full max-w-md py-16">
         <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg p-8 space-y-5 text-center">
           {problem ? (
+            <p className="text-sm text-gray-600">There was an issue connecting.</p>
+          ) : done ? (
             <>
-              <div className="flex items-center gap-2 text-red-600 bg-red-50 p-3 rounded-lg text-sm text-left">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                {problem}
-              </div>
-              <Link to="/login" className="inline-block text-sm font-medium text-brand-700 hover:text-brand-800">
-                Back to sign in
-              </Link>
-            </>
-          ) : result?.kind === "ok" ? (
-            <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 p-3 rounded-lg text-sm text-left">
-              Authorized. You can close this window and return to your terminal.
-            </div>
-          ) : result?.kind === "error" ? (
-            <>
-              <div className="flex items-center gap-2 text-red-600 bg-red-50 p-3 rounded-lg text-sm text-left">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                {result.detail}
-              </div>
-              <Link to="/login" className="inline-block text-sm font-medium text-brand-700 hover:text-brand-800">
-                Back to sign in
-              </Link>
-            </>
-          ) : exchange ? (
-            <>
-              <Spokes className="h-8 w-8 text-brand-600 mx-auto" />
-              <p className="text-sm text-gray-600">Handing this session to the terminal running blaster login…</p>
+              <p className="text-xl font-semibold text-gray-800">Your account has been authenticated.</p>
+              <p className="text-sm text-gray-600">Thanks for connecting.</p>
             </>
           ) : (
-            <>
-              <Spokes className="h-8 w-8 text-brand-600 mx-auto" />
-              <p className="text-sm text-gray-600">Finishing Twenty sign-in…</p>
-            </>
+            <p className="text-sm text-gray-600">Connecting your account…</p>
           )}
+          <Link to="/" className="block text-center text-sm text-gray-500 underline hover:text-gray-700">
+            back to the main page
+          </Link>
         </div>
       </div>
     </TropicalTideBackground>
