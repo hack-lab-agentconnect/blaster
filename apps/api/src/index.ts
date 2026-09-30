@@ -191,6 +191,52 @@ inbox.get("/conversations/:id/messages", requireOperator, async (c) => {
   return c.json({ count: result.rows.length, messages: result.rows });
 });
 
+/**
+ * Workspace sending numbers the operator may send from.
+ *
+ * Authenticated: these rows carry provisioned numbers and their profile
+ * bindings. This is the selector the guided send consumes: the client picks
+ * an `agencyPhoneId` and every later call re-resolves that id to the row, so
+ * a surface can never smuggle a number or a profile past the workspace.
+ *
+ * Only rows that can actually send are listed. A number with no
+ * messagingProfileId is rejected at send time with a 409, and a row whose
+ * status is `available` is an unpurchased candidate, so neither is offered.
+ * An unconfigured Twenty reads as an empty list, the same direction
+ * `agencyPhonesForSending` fails in, rather than a 500.
+ *
+ * Boundary note: requireOperator proves a live operator token, but the
+ * Twenty read below uses the deployment's TWENTY_BASE_URL + TWENTY_API_KEY
+ * and does not map the operator to a tenant workspace. Do not claim
+ * multi-tenant isolation for this list until that mapping exists.
+ *
+ * Deliberately not `/api/numbers/owned`: that route is the unauthenticated
+ * Telnyx-account inventory, a different contract that must keep meaning it.
+ */
+inbox.get("/agency-phones", requireOperator, async (c) => {
+  if (!process.env.TWENTY_BASE_URL || !process.env.TWENTY_API_KEY) {
+    return c.json({ count: 0, phones: [] });
+  }
+  try {
+    const rows = await listAgencyPhones(twentyClient());
+    const phones = [];
+    for (const record of rows) {
+      const parsed = fromAgencyPhoneRecord(record);
+      if (!parsed.phoneNumber || !parsed.messagingProfileId) continue;
+      if ((parsed.status ?? "").toLowerCase() === "available") continue;
+      phones.push({
+        agencyPhoneId: record.id,
+        phoneNumber: parsed.phoneNumber,
+        label: parsed.countryCode ? `${parsed.phoneNumber} (${parsed.countryCode})` : parsed.phoneNumber,
+        countryCode: parsed.countryCode ?? null,
+      });
+    }
+    return c.json({ count: phones.length, phones });
+  } catch (error) {
+    return fail(c, error, "Failed to list sending numbers", 502);
+  }
+});
+
 app.route("/api", inbox);
 
 /** The environment manifest, with each variable's configured state. */

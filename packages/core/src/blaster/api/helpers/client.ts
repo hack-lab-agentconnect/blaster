@@ -14,6 +14,7 @@ import {
   type ConversationMessageRow,
   type ConversationSummary,
   type ListConversationsQuery,
+  type SendingNumber,
   type SendRequest,
   type SentMessage,
   type SendResolution,
@@ -30,6 +31,14 @@ export interface BlasterApiClientOptions {
 export interface BlasterApiClient {
   listConversations(query?: ListConversationsQuery): Promise<ConversationSummary[]>;
   conversationMessages(conversationId: string, limit?: number): Promise<ConversationMessageRow[]>;
+  /**
+   * The workspace's sendable numbers, for a sender selector.
+   *
+   * The returned ids are the authority later calls pass back: the server
+   * re-resolves each one to its Twenty row, so the client never supplies a
+   * number or a profile of its own.
+   */
+  listSendingNumbers(): Promise<SendingNumber[]>;
   /**
    * Hand a message to the provider.
    *
@@ -138,6 +147,11 @@ export function createBlasterApiClient(options: BlasterApiClientOptions): Blaste
         text: input.text,
         ...(input.from === undefined ? {} : { from: input.from }),
       });
+    },
+
+    async listSendingNumbers() {
+      const body = await get<{ phones: SendingNumber[] }>("/api/agency-phones", {});
+      return body.phones;
     },
   };
 }

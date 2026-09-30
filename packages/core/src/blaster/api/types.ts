@@ -89,6 +89,21 @@ export interface SendResolution {
 }
 
 /**
+ * A workspace sending number the operator may send from, exactly as
+ * `GET /api/agency-phones` returns it.
+ *
+ * The id is the Twenty record id: the server re-resolves it to the row on
+ * every use, so a client can never smuggle a number or a profile past the
+ * workspace's own records. Only rows that can actually send are listed.
+ */
+export interface SendingNumber {
+  agencyPhoneId: string;
+  phoneNumber: string;
+  label: string;
+  countryCode?: string | null;
+}
+
+/**
  * A failure the caller can act on. `unauthorized` is separated from the rest
  * because it has exactly one remedy: sign in again.
  */
