@@ -11,16 +11,18 @@ import { LoginPage } from "./pages/LoginPage";
  * implementation of the same OAuth round trip, and two copies of sign-in drift.
  * Any other path is the landing page, so a stale `/cli` link from an older
  * session lands somewhere that explains itself rather than erroring.
+ *
+ * No layout wrapper here: every page owns the full viewport (the animated
+ * background is the page itself, as in open-twenty-dialer), so a constraining
+ * shell would inset it into a centered column.
  */
 export function App() {
   return (
-    <div className="shell">
-      <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/callback" element={<CallbackPage />} />
-        <Route path="*" element={<HomePage />} />
-      </Routes>
-    </div>
+    <Routes>
+      <Route path="/" element={<HomePage />} />
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/callback" element={<CallbackPage />} />
+      <Route path="*" element={<HomePage />} />
+    </Routes>
   );
 }

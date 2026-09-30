@@ -39,7 +39,7 @@
   }
 }
 
-/* Legacy landing-page styles (Home). The sign-in pages use Tailwind. */
+/* Legacy landing-page styles. The sign-in pages use Tailwind. */
 :root {
   color-scheme: light;
   font-family: ui-sans-serif, system-ui, sans-serif;
@@ -49,12 +49,6 @@ body {
   margin: 0;
   background: #fafafa;
   color: #111;
-}
-
-.shell {
-  max-width: 560px;
-  margin: 48px auto;
-  padding: 0 20px;
 }
 
 .card {
