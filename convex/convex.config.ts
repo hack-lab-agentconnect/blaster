@@ -33,6 +33,11 @@ import rateLimiter from "@convex-dev/rate-limiter/convex.config";
 const app = defineApp({
   env: {
     TELNYX_API_KEY: v.string(),
+    // The enroll seam reads Twenty from Convex (over `agencyProspects`), so the
+    // deployment needs the same two credentials the Hono surface uses. Declared
+    // here so `env.TWENTY_*` is typed; provisioned like any other variable.
+    TWENTY_BASE_URL: v.optional(v.string()),
+    TWENTY_API_KEY: v.optional(v.string()),
   },
 });
 

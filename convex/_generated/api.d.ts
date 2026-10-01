@@ -33,6 +33,7 @@ import type * as schema_pool from "../schema/pool.js";
 import type * as schema_sequences from "../schema/sequences.js";
 import type * as schema_suppressions from "../schema/suppressions.js";
 import type * as sequence_actions from "../sequence/actions.js";
+import type * as sequence_enrollment from "../sequence/enrollment.js";
 import type * as sequence_helpers from "../sequence/helpers.js";
 import type * as sequence_index from "../sequence/index.js";
 import type * as sequence_model from "../sequence/model.js";
@@ -78,6 +79,7 @@ declare const fullApi: ApiFromModules<{
   "schema/sequences": typeof schema_sequences;
   "schema/suppressions": typeof schema_suppressions;
   "sequence/actions": typeof sequence_actions;
+  "sequence/enrollment": typeof sequence_enrollment;
   "sequence/helpers": typeof sequence_helpers;
   "sequence/index": typeof sequence_index;
   "sequence/model": typeof sequence_model;

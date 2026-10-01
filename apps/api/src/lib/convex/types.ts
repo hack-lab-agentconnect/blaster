@@ -8,6 +8,7 @@
 export type {
   ConversationQuery,
   ConversationRow,
+  EnrollOutcome,
   InboundRecordInput,
   InboundRecordResult,
   LedgerNumber,

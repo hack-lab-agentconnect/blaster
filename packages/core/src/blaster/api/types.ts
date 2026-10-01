@@ -275,6 +275,22 @@ export interface SuppressionRow {
   createdAt: number;
 }
 
+/** One prospect's outcome inside an enroll run. Never a bare boolean. */
+export interface EnrollOutcome {
+  prospectId: string;
+  phone: string | null;
+  status: "enrolled" | "skipped";
+  detail: string | null;
+}
+
+/** The whole of an enroll run: every prospect accounted for. */
+export interface EnrollResult {
+  total: number;
+  enrolled: number;
+  skipped: number;
+  outcomes: EnrollOutcome[];
+}
+
 /**
  * A failure the caller can act on. `unauthorized` is separated from the rest
  * because it has exactly one remedy: sign in again.

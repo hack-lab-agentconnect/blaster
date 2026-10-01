@@ -11,6 +11,7 @@
 
 import {
   DEFAULT_OPTIONS,
+  createBlasterApiClient,
   TwentyClient,
   buildBreakdown,
   canAgentRespond,
@@ -53,7 +54,7 @@ import {
   isInteractive,
   note,
 } from "./prompt.ts";
-import { LOGOUT_USAGE, WHOAMI_USAGE, loginMain, logoutMain, whoamiMain } from "./login.ts";
+import { LOGOUT_USAGE, WHOAMI_USAGE, ensureLiveSession, loadHome, loginMain, logoutMain, whoamiMain } from "./login.ts";
 import { INBOX_USAGE, inboxList, inboxShow, type CliFlags } from "./inbox.ts";
 import { SEND_USAGE, sendMain } from "./send.ts";
 import { SEQUENCE_USAGE, sequenceMain, type SequenceContext } from "./sequence.ts";
@@ -144,6 +145,7 @@ const CAPABILITIES = [
   { id: "sequences.setPool", cli: "blaster pools assign", mcp: "blaster_set_sequence_pool", http: "POST /api/sequences/:id/pool" },
   { id: "suppressions.list", cli: "blaster suppress list", mcp: "blaster_list_suppressions", http: "GET /api/suppressions" },
   { id: "suppressions.set", cli: "blaster suppress add|remove", mcp: "blaster_set_suppression", http: "POST /api/suppressions" },
+  { id: "sequences.enroll", cli: "blaster sequence enroll", mcp: "blaster_enroll_recipients", http: "POST /api/sequences/:id/enroll" },
   { id: "conversations.list", cli: "blaster inbox list", mcp: "blaster_list_conversations", http: "GET /api/conversations" },
   { id: "conversations.read", cli: "blaster inbox show", mcp: "blaster_get_messages", http: "GET /api/conversations/:id/messages" },
   { id: "auth.login", cli: "blaster login", mcp: "", http: "" },
@@ -302,6 +304,7 @@ async function main(): Promise<number> {
       const action = positional[0];
       if (action === "validate" || action === "check") return await sequenceValidate(flags, json);
       if (action === "preview") return await sequencePreview(flags, json);
+      if (action === "enroll") return await sequenceEnroll(positional[1], flags, json);
       // Everything else is the recorded-draft lifecycle: new/list/show/edit/run/rm.
       const known = ["new", "create", "list", "ls", "show", "edit", "run", "dry-run", "rm", "delete"];
       if (action !== undefined && known.includes(action)) {
@@ -417,6 +420,72 @@ async function sequenceValidate(flags: Map<string, string | boolean>, json: bool
     for (const problem of problems) console.error(`  ${problem.field}: ${problem.problem}`);
   }
   return problems.length === 0 ? 0 : 1;
+}
+
+/**
+ * Enroll prospects from Twenty into a stored sequence.
+ *
+ * The filters are the same JSON shape `blaster prospects` uses; they are sent as
+ * definitions and validated on the server against the shared menu, so the CLI
+ * never submits raw Twenty query DSL. Goes through the operator session, so a
+ * signed-in operator is required (the enroll run writes enrollments).
+ */
+async function sequenceEnroll(
+  sequenceId: string | undefined,
+  flags: Map<string, string | boolean>,
+  json: boolean,
+): Promise<number> {
+  if (!sequenceId) {
+    console.error(
+      `blaster sequence enroll: name the sequence id\n` +
+        "  blaster sequence enroll <sequence-id> --filters '[{\"field\":\"status\",\"operator\":\"eq\",\"value\":\"NEW\"}]'",
+    );
+    return 1;
+  }
+  const raw = typeof flags.get("filters") === "string" ? (flags.get("filters") as string) : "[]";
+  let filters: unknown;
+  try {
+    filters = JSON.parse(raw);
+  } catch (error) {
+    console.error(`blaster sequence enroll: --filters is not valid JSON: ${(error as Error).message}`);
+    return 1;
+  }
+  const root = process.cwd();
+  const home = loadHome(root);
+  const apiUrl = home.config.apiUrl ?? Object.keys(home.sessions)[0] ?? null;
+  if (!apiUrl) {
+    console.error('blaster sequence enroll: no signed-in API. Run "blaster login" first.');
+    return 1;
+  }
+  const session = await ensureLiveSession(root, apiUrl);
+  if (!session) {
+    console.error(`blaster sequence enroll: no live session for ${apiUrl}. Run "blaster login" first.`);
+    return 1;
+  }
+  const client = createBlasterApiClient({ baseUrl: apiUrl, accessToken: session.accessToken });
+  try {
+    const result = await client.enrollRecipients({
+      sequenceId,
+      filters: (Array.isArray(filters) ? filters : []) as never,
+      ...(typeof flags.get("owner") === "string" ? { ownerMemberId: flags.get("owner") as string } : {}),
+      ...(typeof flags.get("outbound-state") === "string"
+        ? { outboundState: flags.get("outbound-state") as string }
+        : {}),
+    });
+    if (json) {
+      console.log(asJson(result));
+    } else {
+      console.log(`${result.enrolled} of ${result.total} prospect(s) enrolled, ${result.skipped} skipped.`);
+      for (const outcome of result.outcomes) {
+        console.log(`  [${outcome.status}] ${outcome.prospectId} ${outcome.phone ?? ""} ${outcome.detail ?? ""}`.trimEnd());
+      }
+    }
+    return 0;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`blaster sequence enroll: ${message}`);
+    return 1;
+  }
 }
 
 async function sequencePreview(flags: Map<string, string | boolean>, json: boolean): Promise<number> {

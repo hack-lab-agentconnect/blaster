@@ -61,6 +61,7 @@ import { applyOutboundStatus, conversationMessages, listConversations, recordInb
 import {
   addPoolNumber,
   createPool,
+  enrollRecipients,
   getPool,
   listLedgerNumbers,
   listPools,
@@ -714,6 +715,47 @@ suppressions.post("/suppressions", requireOperator, async (c) => {
 });
 
 app.route("/api", suppressions);
+
+/**
+ * Enroll prospects into a sequence straight from Twenty.
+ *
+ * The same filter DSL the batch send uses, applied to `agencyProspects` on the
+ * Convex side, which is where the Twenty credentials live and therefore where
+ * the walk happens. The caller passes validated filter definitions; Convex
+ * re-validates with the shared menu before touching Twenty.
+ */
+const enroll = new Hono();
+
+enroll.post("/sequences/:id/enroll", requireOperator, async (c) => {
+  const body = (await c.req.json().catch(() => null)) as {
+    filters?: unknown;
+    ownerMemberId?: unknown;
+    outboundState?: unknown;
+  } | null;
+  const validated = validateProspectFilters(body?.filters);
+  if ("problems" in validated) {
+    return c.json({ error: "Invalid prospect filters", problems: validated.problems }, 400);
+  }
+  // The filters are already validated here; the seam re-validates with the same
+  // shared menu on the Convex side. Pass the caller's raw clauses through, since
+  // a `ValidatedFilter`'s `field` is the menu entry object, not its name, and the
+  // seam takes the raw `{ field, operator, value }` shape.
+  const result = await enrollRecipients({
+    sequenceId: c.req.param("id"),
+    filters: (Array.isArray(body?.filters) ? body.filters : []) as Array<{
+      field: string;
+      operator: string;
+      value?: string | number | boolean | string[];
+    }>,
+    ...(typeof body?.ownerMemberId === "string" ? { ownerMemberId: body.ownerMemberId } : {}),
+    ...(typeof body?.outboundState === "string" ? { outboundState: body.outboundState } : {}),
+  });
+  if (result.status === "not-configured") return c.json({ error: "CONVEX_URL is not configured" }, 503);
+  if (result.status === "failed") return c.json({ error: "Failed to enroll recipients", detail: result.error }, 502);
+  return c.json(result.value);
+});
+
+app.route("/api", enroll);
 
 /** The environment manifest, with each variable's configured state. */
 app.get("/api/env", (c) => {

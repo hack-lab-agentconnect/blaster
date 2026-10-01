@@ -4,7 +4,7 @@ import { v } from "convex/values";
 // Aliased: `profileEnv` below builds the Telnyx SDK's own env record and this
 // handler holds it in a local `env`, which would otherwise shadow the Convex
 // one for the rest of the function.
-import { internalAction, env as convexEnv } from "../_generated/server.js";
+import { action, internalAction, env as convexEnv } from "../_generated/server.js";
 import { internal } from "../_generated/api.js";
 import type { Id } from "../_generated/dataModel.js";
 import {
@@ -19,6 +19,14 @@ import {
   resolveMessagingProfile,
   sendMessage,
 } from "../../packages/core/src/telnyx/messaging/index";
+import { TwentyClient } from "../../packages/core/src/twenty/client/index";
+import {
+  filtersToDsl,
+  markProspectOutbound,
+  splitEligibility,
+  validateProspectFilters,
+  walkProspectRows,
+} from "../../packages/core/src/twenty/agencyProspect/index";
 import type { ApplyScheduleArgs, RunOutcome } from "./index.js";
 import { isScheduledStatus, profileEnv } from "./utils.js";
 
@@ -408,5 +416,138 @@ export const runDueEnrollments = internalAction({
       results.push({ enrollmentId, outcome });
     }
     return { now, considered: ids.length, results };
+  },
+});
+
+/** The two Twenty credentials the enroll seam needs, read from the deployment. */
+function twentyEnv(): { baseUrl: string; apiKey: string } | null {
+  const baseUrl = convexEnv.TWENTY_BASE_URL;
+  const apiKey = convexEnv.TWENTY_API_KEY;
+  if (!baseUrl || !apiKey) return null;
+  return { baseUrl, apiKey };
+}
+
+/** A Twenty client built from the deployment's environment, or thrown. */
+function twentyClient(env: { baseUrl: string; apiKey: string }): TwentyClient {
+  return new TwentyClient({ baseUrl: env.baseUrl.replace(/\/+$/, ""), apiKey: env.apiKey });
+}
+
+/**
+ * Enroll prospects straight from Twenty, reusing the same filter DSL the batch
+ * send uses.
+ *
+ * The enrollment targets exactly what `blaster send` targets: the caller passes
+ * the same validated filters, Convex walks `agencyProspects` with the shared
+ * helper, splits eligibility the same way, and enrolls each eligible prospect.
+ * A skipped prospect is reported with its reason, never silently dropped.
+ *
+ * Twenty writes are mirrored back as `outboundState`, so an operator watching
+ * the workspace sees position in the sequence. The mirror is best-effort: a
+ * Twenty failure does not un-enroll anyone (the enrollment is the source of
+ * truth for whether a message goes out), it is reported in the per-prospect
+ * outcome so the operator can see it.
+ *
+ * This is the one place Convex reaches Twenty, and it does it through the same
+ * `packages/core` helpers every other surface uses — no second implementation of
+ * the filter DSL or the eligibility rules lives here.
+ */
+export const enrollRecipients = action({
+  args: {
+    sequenceId: v.id("sequences"),
+    filters: v.array(
+      v.object({
+        field: v.string(),
+        operator: v.string(),
+        value: v.optional(v.union(v.string(), v.number(), v.boolean(), v.array(v.string()))),
+      }),
+    ),
+    ownerMemberId: v.optional(v.string()),
+    /** The outboundState to stamp on each enrolled prospect, so the mirror is explicit. */
+    outboundState: v.optional(v.string()),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    total: number;
+    enrolled: number;
+    skipped: number;
+    outcomes: Array<{ prospectId: string; phone: string | null; status: "enrolled" | "skipped"; detail: string | null }>;
+  }> => {
+    const twenty = twentyEnv();
+    if (!twenty) throw new Error("Twenty is not configured (TWENTY_BASE_URL, TWENTY_API_KEY)");
+
+    // Validate the filters with the shared menu before touching Twenty, so an
+    // invalid DSL is a clear error rather than a live query that matches wrong.
+    const validated = validateProspectFilters(args.filters);
+    if ("problems" in validated) {
+      throw new Error(`invalid prospect filters: ${validated.problems.join(" ")}`);
+    }
+    const dsl = filtersToDsl(validated.filters);
+
+    const sequence = await ctx.runQuery(internal.sequence.queries.sequenceById, {
+      sequenceId: args.sequenceId,
+    });
+    if (!sequence) throw new Error(`unknown sequence ${args.sequenceId}`);
+
+    const rows = await walkProspectRows(twentyClient(twenty), dsl);
+    const split = splitEligibility(rows);
+
+    const outcomes: Array<{
+      prospectId: string;
+      phone: string | null;
+      status: "enrolled" | "skipped";
+      detail: string | null;
+    }> = split.skipped.map(({ summary, reason }) => ({
+      prospectId: summary.id,
+      phone: summary.phone,
+      status: "skipped" as const,
+      detail: reason,
+    }));
+
+    let enrolled = 0;
+    for (const prospect of split.eligible) {
+      try {
+        await ctx.runMutation(internal.sequence.mutations.enrollInternal, {
+          sequenceId: args.sequenceId,
+          recipientId: prospect.id,
+          to: prospect.phone ?? undefined,
+          country: prospect.country ?? undefined,
+          ...(args.ownerMemberId ? { ownerMemberId: args.ownerMemberId } : {}),
+        });
+      } catch (error) {
+        // A suppressed peer, or a full sequence, is a skip with a reason rather
+        // than a failed run: the rest of the batch still goes out.
+        outcomes.push({
+          prospectId: prospect.id,
+          phone: prospect.phone,
+          status: "skipped",
+          detail: error instanceof Error ? error.message : String(error),
+        });
+        continue;
+      }
+      enrolled += 1;
+      outcomes.push({ prospectId: prospect.id, phone: prospect.phone, status: "enrolled", detail: null });
+
+      // Best-effort mirror: a Twenty outage must not undo an enrollment.
+      if (args.outboundState && prospect.phone) {
+        try {
+          await markProspectOutbound(
+            twentyClient(twenty),
+            prospect.id,
+            args.outboundState,
+          );
+        } catch {
+          outcomes.push({
+            prospectId: prospect.id,
+            phone: prospect.phone,
+            status: "enrolled",
+            detail: "enrolled, but outboundState could not be mirrored to Twenty",
+          });
+        }
+      }
+    }
+
+    return { total: rows.length, enrolled, skipped: outcomes.length - enrolled, outcomes };
   },
 });

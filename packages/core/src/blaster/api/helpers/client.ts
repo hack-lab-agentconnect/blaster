@@ -16,6 +16,7 @@ import {
   type ConversationMessageRow,
   type ConversationSummary,
   type CreatePoolInput,
+  type EnrollResult,
   type ListConversationsQuery,
   type PoolDetail,
   type PoolSummary,
@@ -33,7 +34,6 @@ import {
   type SetSequencePoolInput,
   type SuppressionRow,
 } from "../types.ts";
-
 export interface BlasterApiClientOptions {
   /** Origin of the API, without a trailing path, e.g. http://localhost:4180 */
   baseUrl: string;
@@ -96,6 +96,16 @@ export interface BlasterApiClient {
   listSuppressions(): Promise<SuppressionRow[]>;
   /** Suppress a peer, or lift a suppression. */
   setSuppression(input: { peer: string; suppressed: boolean; reason?: string }): Promise<{ peer: string; changed: boolean }>;
+  /**
+   * Enroll prospects into a sequence straight from Twenty, matching the send
+   * filter DSL. Returns a per-prospect outcome, never a bare count.
+   */
+  enrollRecipients(input: {
+    sequenceId: string;
+    filters: ProspectFilter[];
+    ownerMemberId?: string;
+    outboundState?: string;
+  }): Promise<EnrollResult>;
 }
 
 
@@ -319,6 +329,14 @@ export function createBlasterApiClient(options: BlasterApiClientOptions): Blaste
         peer: input.peer,
         suppressed: input.suppressed,
         ...(input.reason === undefined ? {} : { reason: input.reason }),
+      });
+    },
+
+    enrollRecipients(input) {
+      return post<EnrollResult>(`/api/sequences/${encodeURIComponent(input.sequenceId)}/enroll`, {
+        filters: input.filters,
+        ...(input.ownerMemberId === undefined ? {} : { ownerMemberId: input.ownerMemberId }),
+        ...(input.outboundState === undefined ? {} : { outboundState: input.outboundState }),
       });
     },
   };

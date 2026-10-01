@@ -1,6 +1,7 @@
 export type {
   ConversationQuery,
   ConversationRow,
+  EnrollOutcome,
   InboundRecordInput,
   InboundRecordResult,
   LedgerNumber,
@@ -22,6 +23,7 @@ export {
   listPools,
   listSequences,
   listSuppressions,
+  enrollRecipients,
   recordInboundMessage,
   removePoolNumber,
   reorderPoolNumbers,

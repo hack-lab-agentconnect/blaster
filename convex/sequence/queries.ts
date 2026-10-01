@@ -145,3 +145,24 @@ export const loadRunContext = internalQuery({
     return readRunContext(ctx, args.enrollmentId, now);
   },
 });
+
+/**
+ * One sequence's scheduling identity, for a caller that has only its id.
+ *
+ * The enroll seam reads this to confirm the sequence exists before it walks
+ * Twenty; the full row with steps is `getSequence`, which the seam does not need.
+ */
+export const sequenceById = internalQuery({
+  args: { sequenceId: v.id("sequences") },
+  handler: async (ctx, args) => {
+    const sequence = await ctx.db.get("sequences", args.sequenceId);
+    if (!sequence) return null;
+    return {
+      _id: sequence._id,
+      name: sequence.name,
+      status: sequence.status,
+      fromNumber: sequence.fromNumber,
+      poolId: sequence.poolId,
+    };
+  },
+});

@@ -438,3 +438,34 @@ export async function setSuppression(
     return { peer: result.peer, changed: result.lifted };
   });
 }
+
+/**
+ * Enroll prospects straight from Twenty, reusing the send filter DSL.
+ *
+ * The action walks `agencyProspects` on the Convex side (it has the Twenty
+ * credentials there), so this is a single call the API/CLI/MCP surfaces share
+ * rather than each re-implementing the walk. Returns per-prospect outcomes so a
+ * caller sees who was enrolled and who was skipped, and why.
+ */
+export interface EnrollOutcome {
+  prospectId: string;
+  phone: string | null;
+  status: "enrolled" | "skipped";
+  detail: string | null;
+}
+
+export async function enrollRecipients(input: {
+  sequenceId: string;
+  filters: Array<{ field: string; operator: string; value?: string | number | boolean | string[] }>;
+  ownerMemberId?: string;
+  outboundState?: string;
+}): Promise<PoolResult<{ total: number; enrolled: number; skipped: number; outcomes: EnrollOutcome[] }>> {
+  return poolCall(async () => {
+    return convexClient()!.action(api.sequence.actions.enrollRecipients, {
+      sequenceId: input.sequenceId as never,
+      filters: input.filters as never,
+      ...(input.ownerMemberId === undefined ? {} : { ownerMemberId: input.ownerMemberId }),
+      ...(input.outboundState === undefined ? {} : { outboundState: input.outboundState }),
+    });
+  });
+}

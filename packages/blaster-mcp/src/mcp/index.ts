@@ -352,6 +352,25 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   {
+    name: "blaster_enroll_recipients",
+    description:
+      "Enroll prospects into a sequence straight from Twenty, matching the send filter DSL. Returns a per-prospect outcome (enrolled or skipped with a reason). Requires Twenty and Convex configured.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sequenceId: { type: "string", description: "The Convex sequence id to enroll into." },
+        filters: {
+          type: "array",
+          description: "The same filter definitions the send command uses: { field, operator, value }.",
+        },
+        ownerMemberId: { type: "string", description: "The member to notify for replies to these enrollments." },
+        outboundState: { type: "string", description: "The Twenty outboundState to mirror onto each enrolled prospect." },
+      },
+      required: ["sequenceId", "filters"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "blaster_set_sequence_pool",
     description:
       "Assign a number pool to a sequence, so the sequence sends from the pool in order within each number's rate budget. Omit poolId to clear the assignment.",
@@ -857,6 +876,26 @@ async function runTool(name: string, args: Record<string, unknown>): Promise<Too
           text: result.changed
             ? `${args.suppressed ? "Suppressed" : "Lifted the suppression on"} ${result.peer}.`
             : `${result.peer} was already in that state.`,
+          structured: result,
+        };
+      } catch (error) {
+        return { text: describeApiError(error) };
+      }
+    }
+
+    case "blaster_enroll_recipients": {
+      const sequenceId = typeof args.sequenceId === "string" ? args.sequenceId : "";
+      const filters = Array.isArray(args.filters) ? args.filters : [];
+      if (!sequenceId || filters.length === 0) return { text: "sequenceId and a non-empty filters array are required." };
+      try {
+        const result = await blasterApi().enrollRecipients({
+          sequenceId,
+          filters: filters as never,
+          ...(typeof args.ownerMemberId === "string" ? { ownerMemberId: args.ownerMemberId } : {}),
+          ...(typeof args.outboundState === "string" ? { outboundState: args.outboundState } : {}),
+        });
+        return {
+          text: `${result.enrolled} of ${result.total} prospect(s) enrolled, ${result.skipped} skipped.`,
           structured: result,
         };
       } catch (error) {

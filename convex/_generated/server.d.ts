@@ -31,6 +31,8 @@ type Env = {
   readonly CONVEX_CLOUD_URL: string;
   readonly CONVEX_SITE_URL: string;
   readonly TELNYX_API_KEY: string;
+  readonly TWENTY_BASE_URL?: string;
+  readonly TWENTY_API_KEY?: string;
 };
 
 /**
