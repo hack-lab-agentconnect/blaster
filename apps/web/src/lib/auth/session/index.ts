@@ -1,4 +1,4 @@
-export type { OperatorSession, PendingFlow, PublicAuthConfig } from "./types.ts";
+export type { OperatorIdentity, OperatorSession, PendingFlow, PublicAuthConfig } from "./types.ts";
 export {
   beginSignIn,
   clearSession,

@@ -14,7 +14,8 @@
 
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
-import { pathToFileURL } from "node:url";
+import { existsSync } from "node:fs";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import {
@@ -708,9 +709,13 @@ app.post("/api/sequences/preview", async (c) => {
  */
 app.get("/api/auth/config", async (c) => {
   const config = loadOAuthConfig();
-  if (!config) return c.json({ error: "Twenty OAuth is not configured" }, 500);
+  if (!config) {
+    console.log("[auth] GET /api/auth/config -> 500 (OAuth not configured)");
+    return c.json({ error: "Twenty OAuth is not configured" }, 500);
+  }
   try {
     const endpoints = await oauthEndpoints(config.baseUrl);
+    console.log(`[auth] GET /api/auth/config -> client=${config.clientId} redirect=${config.redirectUri}`);
     return c.json({
       authorizationEndpoint: endpoints.authorizationEndpoint,
       clientId: config.clientId,
@@ -785,6 +790,11 @@ app.get("/api/auth/me", async (c) => {
     // A token that names no user is an application token, not an unattributed
     // human. The two need different fixes, so they are reported differently.
     const applicationToken = !claims?.userId && !claims?.userWorkspaceId;
+    console.log(
+      `[auth] GET /api/auth/me -> active memberResolved=${member !== null} ` +
+        `resolvedVia=${member?.resolvedVia ?? "none"} applicationToken=${applicationToken}` +
+        (member ? ` member=${member.email ?? member.workspaceMemberId}` : ""),
+    );
     return c.json({
       active: true,
       username: result.username,
@@ -1162,8 +1172,43 @@ const port = Number(process.env.PORT ?? 4180);
 const isEntryPoint =
   process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isEntryPoint) {
+  // Local development loads the repo-root `.env.local` into `process.env`.
+  // Nothing in this process reads an env file on its own: `loadOAuthConfig`
+  // and every other reader take `process.env` as-is. Without this, `pnpm dev`
+  // runs on the bare shell environment and every provider reports "not
+  // configured" even though the values sit in `.env.local` two levels up.
+  //
+  // This runs only for the real server process, never on import: the test
+  // suite imports this module to drive routes, and loading a developer's
+  // real keys into that process would break fixtures that construct a
+  // misconfigured instance by deleting vars. `loadEnvFile` only fills gaps,
+  // so real environment (Vercel, exported shell vars) always wins; on a
+  // deployment the file is absent and this is a no-op. PORT is read at
+  // module level above, so a PORT in the file would not apply — port
+  // assignment belongs to the environment, not the local file.
+  const repoRootEnvFile = fileURLToPath(new URL("../../../.env.local", import.meta.url));
+  if (existsSync(repoRootEnvFile)) {
+    process.loadEnvFile(repoRootEnvFile);
+    console.log(`[env] loaded ${repoRootEnvFile}`);
+  } else {
+    console.log("[env] no repo-root .env.local; using the process environment as-is");
+  }
   serve({ fetch: app.fetch, port }, (info) => {
     console.log(`blaster listening on http://localhost:${info.port}`);
+    // Startup identity banner: shows which providers the process can see.
+    // Only public values are printed (client id, redirect, scope, host);
+    // keys, secrets and passwords are never logged, only present/absent.
+    const oauth = loadOAuthConfig();
+    if (!oauth) {
+      console.log("[auth] Twenty OAuth is NOT configured (base URL, client id, or redirect URI missing)");
+    } else {
+      console.log(
+        `[auth] OAuth client=${oauth.clientId} redirect=${oauth.redirectUri} ` +
+          `scope="${oauth.scope}" discovery=${oauth.baseUrl} basicAuth=${oauth.basicAuth ? "set" : "unset"} secret=${oauth.clientSecret ? "set (confidential?)" : "unset (public PKCE)"}`,
+      );
+    }
+    const twentyRest = Boolean(process.env.TWENTY_BASE_URL && process.env.TWENTY_API_KEY);
+    console.log(`[twenty] REST/GraphQL ${twentyRest ? "configured" : "NOT configured"} (api key ${process.env.TWENTY_API_KEY ? "set" : "missing"})`);
   });
 }
 

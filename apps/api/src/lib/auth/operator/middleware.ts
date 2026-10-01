@@ -104,7 +104,9 @@ async function operatorFromRequest(c: Context): Promise<OperatorInfo | null> {
 
 /** Require a live operator token. Unauthenticated callers get 401. */
 export const requireOperator: MiddlewareHandler = async (c, next) => {
+  const route = `${c.req.method} ${c.req.path}`;
   if (!loadOAuthConfig()) {
+    console.log(`[auth] ${route} -> 503 (operator sign-in not configured on this deployment)`);
     return c.json(
       { error: "Operator sign-in is not configured on this deployment" },
       503,
@@ -114,17 +116,24 @@ export const requireOperator: MiddlewareHandler = async (c, next) => {
   try {
     operator = await operatorFromRequest(c);
   } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.log(`[auth] ${route} -> 502 (could not validate operator token: ${detail})`);
     return c.json(
       {
         error: "Could not validate the operator token",
-        detail: error instanceof Error ? error.message : String(error),
+        detail,
       },
       502,
     );
   }
   if (!operator) {
+    console.log(`[auth] ${route} -> 401 (no live operator token)`);
     return c.json({ error: "A live operator token is required" }, 401);
   }
+  const member = operator.member;
+  console.log(
+    `[auth] ${route} -> operator member=${member?.email ?? "UNRESOLVED"} via=${member?.resolvedVia ?? "none"}`,
+  );
   c.set("operator", operator);
   await next();
 };

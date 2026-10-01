@@ -5,7 +5,7 @@ import {
   generateState,
   type TokenSet,
 } from "@blaster/core/twenty/oauth";
-import type { OperatorSession, PendingFlow, PublicAuthConfig } from "./types.ts";
+import type { OperatorIdentity, OperatorSession, PendingFlow, PublicAuthConfig } from "./types.ts";
 
 /**
  * Operator session against Twenty (Twenty is the identity provider).
@@ -127,14 +127,14 @@ async function redeem(code: string, verifier: string): Promise<OperatorSession> 
 }
 
 /** Who is signed in, per the API (which introspects against Twenty). */
-export async function fetchOperator(): Promise<{ username: string | null; scope: string | null } | null> {
+export async function fetchOperator(): Promise<OperatorIdentity | null> {
   const session = readSession();
   if (!session) return null;
   const response = await fetch("/api/auth/me", {
     headers: { Authorization: `Bearer ${session.tokens.accessToken}` },
   });
   if (!response.ok) return null;
-  return (await response.json()) as { username: string | null; scope: string | null };
+  return (await response.json()) as OperatorIdentity;
 }
 
 /** Refresh the stored session. Null refresh token means sign in again. */

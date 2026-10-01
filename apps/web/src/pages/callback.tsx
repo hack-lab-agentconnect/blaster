@@ -2,7 +2,7 @@ import { ConvexReactClient } from "convex/react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { TropicalTideBackground } from "../components/background-gradient/tropical-tide-background";
-import { finishSignIn, loadSession } from "../lib/auth/session";
+import { finishSignIn, fetchOperator, loadSession } from "../lib/auth/session";
 import {
   clearCliExchange,
   postCliExchange,
@@ -14,15 +14,18 @@ import {
  * Where Twenty returns: a plain authentication confirmation.
  *
  * The card carries only the authentication status and a way back to the main
- * page. A `blaster login` run parks a return marker, so after the code is
- * redeemed the tokens are handed to the terminal's loopback in the
- * background; that handoff reports through the same status line rather than
- * its own UI.
+ * page. Once the code is redeemed it also asks the API who just signed in,
+ * so the card greets the operator by name; until that answer arrives (or
+ * when the token names no member) it stays with the generic wording. A
+ * `blaster login` run parks a return marker, so after the code is redeemed
+ * the tokens are handed to the terminal's loopback in the background; that
+ * handoff reports through the same status line rather than its own UI.
  */
 export function CallbackPage() {
   const navigate = useNavigate();
   const [problem, setProblem] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [displayName, setDisplayName] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -45,8 +48,17 @@ export function CallbackPage() {
         const outcome = await postCliExchange(pending, session.tokens);
         if (cancelled) return;
         clearCliExchange();
-        if (outcome.kind === "ok") setDone(true);
-        else setProblem("There was an issue connecting.");
+        if (outcome.kind === "ok") {
+          setDone(true);
+          // The greeting arrives a beat later: the card renders immediately,
+          // then names the operator once /api/auth/me answers.
+          fetchOperator()
+            .then((identity) => {
+              if (cancelled) return;
+              setDisplayName(identity?.memberName ?? identity?.memberEmail ?? identity?.username ?? null);
+            })
+            .catch(() => undefined);
+        } else setProblem("There was an issue connecting.");
       })
       .catch(() => {
         if (!cancelled) setProblem("There was an issue connecting.");
@@ -63,10 +75,17 @@ export function CallbackPage() {
           {problem ? (
             <p className="text-sm text-gray-600">There was an issue connecting.</p>
           ) : done ? (
-            <>
-              <p className="text-xl font-semibold text-gray-800">Your account has been authenticated.</p>
-              <p className="text-sm text-gray-600">Thanks for connecting.</p>
-            </>
+            displayName ? (
+              <>
+                <p className="text-xl font-semibold text-gray-800">Welcome back, {displayName}.</p>
+                <p className="text-sm text-gray-600">Your account has been authenticated. Thanks for connecting.</p>
+              </>
+            ) : (
+              <>
+                <p className="text-xl font-semibold text-gray-800">Your account has been authenticated.</p>
+                <p className="text-sm text-gray-600">Thanks for connecting.</p>
+              </>
+            )
           ) : (
             <p className="text-sm text-gray-600">Connecting your account…</p>
           )}
