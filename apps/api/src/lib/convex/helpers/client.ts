@@ -384,3 +384,57 @@ export async function listLedgerNumbers(): Promise<ReadResult<LedgerNumber>> {
     return { status: "failed", error: error instanceof Error ? error.message : String(error) };
   }
 }
+
+/** One suppression row, as the operator list reads it. */
+export interface SuppressionRow {
+  peer: string;
+  reason?: string;
+  source: "inbound-opt-out" | "manual";
+  createdAt: number;
+}
+
+/**
+ * Everyone currently suppressed, newest first.
+ *
+ * The durable per-person suppression list — a STOP recorded once, holding across
+ * sequences and pool numbers. Operator-facing, so it is read through the same
+ * operator-gated surface as the pool list.
+ */
+export async function listSuppressions(): Promise<ReadResult<SuppressionRow>> {
+  const client = convexClient();
+  if (!client) return { status: "not-configured" };
+  try {
+    const rows = await client.query(api.suppressions.mutations.listSuppressions, {});
+    return {
+      status: "ok",
+      rows: rows.map((row) => ({
+        peer: row.peer,
+        ...(row.reason ? { reason: row.reason } : {}),
+        source: row.source,
+        createdAt: row.createdAt,
+      })),
+    };
+  } catch (error) {
+    return { status: "failed", error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** Record a suppression by hand, or lift one. Both operator actions. */
+export async function setSuppression(
+  peer: string,
+  suppressed: boolean,
+  reason?: string,
+): Promise<PoolResult<{ peer: string; changed: boolean }>> {
+  return poolCall(async () => {
+    if (suppressed) {
+      const result = await convexClient()!.mutation(api.suppressions.mutations.suppress, {
+        peer,
+        source: "manual",
+        ...(reason ? { reason } : {}),
+      });
+      return { peer: result.peer, changed: result.created };
+    }
+    const result = await convexClient()!.mutation(api.suppressions.mutations.lift, { peer });
+    return { peer: result.peer, changed: result.lifted };
+  });
+}

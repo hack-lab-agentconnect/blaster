@@ -8,6 +8,7 @@ import {
 } from "../../packages/core/src/conversation/history/index";
 import { PREVIEW_LENGTH, resolveConversation } from "./model.js";
 import { stopEnrollmentsForPeer } from "../sequence/model.js";
+import { suppressPeer } from "../suppressions/model.js";
 
 /**
  * Conversation writes.
@@ -116,7 +117,22 @@ export const recordInboundMessage = mutation({
     const stopStatus = args.optedOut === true ? ("opted-out" as const) : ("replied" as const);
     const stoppedEnrollments = await stopEnrollmentsForPeer(ctx, phoneNumber, sentAt, stopStatus);
 
-    return { status: "stored" as const, conversationId, messageId, stoppedEnrollments };
+    // A STOP is a fact about the person, not this enrollment: record the durable
+    // suppression in the same transaction, so a sibling sequence sending from
+    // another pool number cannot reach them either. Written here rather than by
+    // the caller so the stored message, the enrollment stop, and the suppression
+    // are one atomic fact.
+    let suppressed = false;
+    if (args.optedOut === true) {
+      suppressed = await suppressPeer(ctx, phoneNumber, {
+        source: "inbound-opt-out",
+        reason: "inbound STOP",
+        conversationId,
+        now: sentAt,
+      });
+    }
+
+    return { status: "stored" as const, conversationId, messageId, stoppedEnrollments, suppressed };
   },
 });
 

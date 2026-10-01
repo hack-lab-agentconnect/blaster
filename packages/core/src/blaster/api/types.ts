@@ -267,6 +267,14 @@ export interface SequenceOption {
   poolId: string | null;
 }
 
+/** One durable per-person suppression, as `/api/suppressions` returns it. */
+export interface SuppressionRow {
+  peer: string;
+  reason?: string;
+  source: "inbound-opt-out" | "manual";
+  createdAt: number;
+}
+
 /**
  * A failure the caller can act on. `unauthorized` is separated from the rest
  * because it has exactly one remedy: sign in again.

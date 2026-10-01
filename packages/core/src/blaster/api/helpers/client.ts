@@ -31,6 +31,7 @@ import {
   type SendResolution,
   type SequenceOption,
   type SetSequencePoolInput,
+  type SuppressionRow,
 } from "../types.ts";
 
 export interface BlasterApiClientOptions {
@@ -90,6 +91,11 @@ export interface BlasterApiClient {
   setSequencePool(input: SetSequencePoolInput): Promise<{ sequenceId: string }>;
   /** Sequences, for a pool-assignment picker. */
   listSequences(): Promise<SequenceOption[]>;
+
+  /** Everyone currently suppressed (a durable per-person do-not-contact). */
+  listSuppressions(): Promise<SuppressionRow[]>;
+  /** Suppress a peer, or lift a suppression. */
+  setSuppression(input: { peer: string; suppressed: boolean; reason?: string }): Promise<{ peer: string; changed: boolean }>;
 }
 
 
@@ -301,6 +307,19 @@ export function createBlasterApiClient(options: BlasterApiClientOptions): Blaste
     async listSequences() {
       const body = await get<{ sequences: SequenceOption[] }>("/api/sequences", {});
       return body.sequences;
+    },
+
+    async listSuppressions() {
+      const body = await get<{ suppressions: SuppressionRow[] }>("/api/suppressions", {});
+      return body.suppressions;
+    },
+
+    setSuppression(input) {
+      return post<{ peer: string; changed: boolean }>("/api/suppressions", {
+        peer: input.peer,
+        suppressed: input.suppressed,
+        ...(input.reason === undefined ? {} : { reason: input.reason }),
+      });
     },
   };
 }

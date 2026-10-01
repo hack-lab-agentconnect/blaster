@@ -2,6 +2,7 @@ import type { QueryCtx } from "../_generated/server.js";
 import type { Id } from "../_generated/dataModel.js";
 import { normaliseCountry } from "../../packages/core/src/telnyx/messaging/helpers/profile.js";
 import { normalizePhoneNumber } from "../../packages/core/src/conversation/history/helpers/pair.js";
+import { isSuppressed } from "../suppressions/model.js";
 import type { RunContext } from "./types.js";
 import { stepsInOrder } from "./utils.js";
 
@@ -123,6 +124,12 @@ export async function loadRunContext(
   }
 
   const hasReplied = await peerHasReplied(ctx, to);
+  // Durable per-person suppression, distinct from the enrollment snapshot: a
+  // STOP in another sequence, from another number, must stop this step even
+  // before the enrollment's own status catches up. Folded into `doNotContact`
+  // so the machine's eligibility rule is unchanged — a suppressed peer is one
+  // the eligibility input already knows how to refuse.
+  const suppressed = to ? await isSuppressed(ctx, to) : false;
 
   return {
     enrollment: {
@@ -139,7 +146,7 @@ export async function loadRunContext(
       lastSentAt: enrollment.lastSentAt,
       lastSkipReason: enrollment.lastSkipReason,
       attempts: enrollment.attempts,
-      doNotContact: enrollment.doNotContact,
+      doNotContact: enrollment.doNotContact === true || suppressed,
     },
     sequence: {
       _id: sequence._id,

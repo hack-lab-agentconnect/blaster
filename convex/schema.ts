@@ -4,6 +4,7 @@ import { sequenceTables } from "./schema/sequences.js";
 import { conversationTables } from "./schema/conversations.js";
 import { phoneTables } from "./schema/phone.js";
 import { poolTables } from "./schema/pool.js";
+import { suppressionTables } from "./schema/suppressions.js";
 import { discoveryTables } from "./schema/discovery.js";
 
 /**
@@ -25,5 +26,6 @@ export default defineSchema({
   ...conversationTables,
   ...phoneTables,
   ...poolTables,
+  ...suppressionTables,
   ...discoveryTables,
 });

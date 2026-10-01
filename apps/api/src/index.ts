@@ -65,9 +65,11 @@ import {
   listLedgerNumbers,
   listPools,
   listSequences,
+  listSuppressions,
   removePoolNumber,
   reorderPoolNumbers,
   setSequencePool,
+  setSuppression,
 } from "./lib/convex/index.ts";
 import { requireOperator, resolveOperatorActor } from "./lib/auth/operator/index.ts";
 import { broadcastReply, classifyMessageRules } from "@blaster/core";
@@ -664,6 +666,54 @@ pools.post("/sequences/:id/pool", requireOperator, async (c) => {
 });
 
 app.route("/api", pools);
+
+/**
+ * Suppressions: the durable per-person do-not-contact list.
+ *
+ * A STOP is a fact about the person, so it holds across every sequence and every
+ * pool number. Operator-gated like the pools, because a row here stops outbound
+ * contact for a real person. The list is read-only here; a suppression is
+ * written by the inbound webhook, and lifted by an explicit human action.
+ */
+const suppressions = new Hono();
+
+suppressions.get("/suppressions", requireOperator, async (c) => {
+  const result = await listSuppressions();
+  if (result.status === "not-configured") return c.json({ error: "CONVEX_URL is not configured" }, 503);
+  if (result.status === "failed") return c.json({ error: "Failed to list suppressions", detail: result.error }, 502);
+  return c.json({ count: result.rows.length, suppressions: result.rows });
+});
+
+/**
+ * Suppress a peer by hand, or lift a suppression.
+ *
+ * `POST { peer, suppressed: false }` lifts. Lifting is deliberately explicit:
+ * nothing in the inbound path can do it, so a START message cannot reopen
+ * contact on its own.
+ */
+suppressions.post("/suppressions", requireOperator, async (c) => {
+  const body = (await c.req.json().catch(() => null)) as {
+    peer?: unknown;
+    suppressed?: unknown;
+    reason?: unknown;
+  } | null;
+  if (!body || typeof body.peer !== "string" || body.peer.trim() === "") {
+    return c.json({ error: "peer is required" }, 400);
+  }
+  if (typeof body.suppressed !== "boolean") {
+    return c.json({ error: "suppressed must be true (suppress) or false (lift)" }, 400);
+  }
+  const result = await setSuppression(
+    body.peer,
+    body.suppressed,
+    typeof body.reason === "string" ? body.reason : undefined,
+  );
+  if (result.status === "not-configured") return c.json({ error: "CONVEX_URL is not configured" }, 503);
+  if (result.status === "failed") return c.json({ error: "Failed to update the suppression", detail: result.error }, 502);
+  return c.json(result.value);
+});
+
+app.route("/api", suppressions);
 
 /** The environment manifest, with each variable's configured state. */
 app.get("/api/env", (c) => {

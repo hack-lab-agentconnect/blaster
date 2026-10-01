@@ -292,10 +292,11 @@ never written.
 The `check:convex` gate enforces exactly the R-rules that are objectively
 checkable without understanding intent:
 
-- every filename under `convex/` (outside `_generated/`, any extension) is
-  camelCase or a single lowercase word (R1); only `convex.config.ts` is matched
-  by exact name, and only at the root (`schema.ts`, `http.ts`, and `crons.ts`
-  pass the casing rule on their own and need no exemption);
+- every filename under `convex/` (outside `_generated/`, `test/`, any
+  extension) is camelCase or a single lowercase word (R1); only
+  `convex.config.ts` is matched by exact name, and only at the root (`schema.ts`,
+  `http.ts`, and `crons.ts` pass the casing rule on their own and need no
+  exemption);
 - every directory name under `convex/` (outside `_generated/`) follows the same
   rule (R1);
 - table, field, and index names are **not** checked (R2/R3 are documented

@@ -46,6 +46,7 @@
     "@modelcontextprotocol/client": "^2.1.0",
     "@types/node": "^22.10.2",
     "convex": "^1.46.0",
+    "convex-test": "^0.0.60",
     "esbuild": "0.28.1",
     "eslint": "^10.11.0",
     "graphql": "^17.0.2",

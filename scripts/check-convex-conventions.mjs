@@ -30,7 +30,7 @@ const CAMEL = /^[a-z][a-zA-Z0-9]*$/;
 const ROOT_ONLY_NAMES = new Set(["convex.config.ts"]);
 
 /** Trees the gate never scans. */
-const EXEMPT = new Set(["_generated", "generated", "node_modules"]);
+const EXEMPT = new Set(["_generated", "generated", "node_modules", "test"]);
 
 const violations = [];
 const report = (path, message) => violations.push(`${path}: ${message}`);

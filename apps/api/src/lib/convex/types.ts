@@ -15,4 +15,5 @@ export type {
   PoolResult,
   ReadResult,
   StatusResult,
+  SuppressionRow,
 } from "./helpers/client.ts";

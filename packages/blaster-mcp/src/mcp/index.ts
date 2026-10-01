@@ -331,6 +331,27 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   {
+    name: "blaster_list_suppressions",
+    description:
+      "List everyone on the durable per-person do-not-contact list, newest first. A STOP is recorded here and holds across every sequence and pool number.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "blaster_set_suppression",
+    description:
+      "Suppress a person by hand, or lift a suppression. A suppression is keyed on the E.164 peer and blocks enrollment and sending until lifted. Lifting is the only way to reopen contact.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        peer: { type: "string", description: "The person's number in E.164." },
+        suppressed: { type: "boolean", description: "true to suppress, false to lift." },
+        reason: { type: "string", description: "Why, for the operator list. Only used when suppressing." },
+      },
+      required: ["peer", "suppressed"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "blaster_set_sequence_pool",
     description:
       "Assign a number pool to a sequence, so the sequence sends from the pool in order within each number's rate budget. Omit poolId to clear the assignment.",
@@ -803,6 +824,39 @@ async function runTool(name: string, args: Record<string, unknown>): Promise<Too
         });
         return {
           text: poolId ? `Assigned pool ${poolId} to sequence ${sequenceId}.` : `Cleared the pool on sequence ${sequenceId}.`,
+          structured: result,
+        };
+      } catch (error) {
+        return { text: describeApiError(error) };
+      }
+    }
+
+    case "blaster_list_suppressions": {
+      try {
+        const rows = await blasterApi().listSuppressions();
+        return {
+          text: rows.length === 0 ? "Nobody is suppressed." : `${rows.length} suppressed.`,
+          structured: { count: rows.length, suppressions: rows },
+        };
+      } catch (error) {
+        return { text: describeApiError(error) };
+      }
+    }
+
+    case "blaster_set_suppression": {
+      const peer = typeof args.peer === "string" ? args.peer : "";
+      if (!peer) return { text: "peer is required." };
+      if (typeof args.suppressed !== "boolean") return { text: "suppressed must be a boolean." };
+      try {
+        const result = await blasterApi().setSuppression({
+          peer,
+          suppressed: args.suppressed,
+          ...(typeof args.reason === "string" ? { reason: args.reason } : {}),
+        });
+        return {
+          text: result.changed
+            ? `${args.suppressed ? "Suppressed" : "Lifted the suppression on"} ${result.peer}.`
+            : `${result.peer} was already in that state.`,
           structured: result,
         };
       } catch (error) {

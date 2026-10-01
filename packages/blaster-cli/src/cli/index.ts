@@ -58,6 +58,7 @@ import { INBOX_USAGE, inboxList, inboxShow, type CliFlags } from "./inbox.ts";
 import { SEND_USAGE, sendMain } from "./send.ts";
 import { SEQUENCE_USAGE, sequenceMain, type SequenceContext } from "./sequence.ts";
 import { POOLS_USAGE, poolsMain } from "./pools.ts";
+import { SUPPRESS_USAGE, suppressMain } from "./suppress.ts";
 
 interface Parsed {
   command: string | undefined;
@@ -113,6 +114,7 @@ Read and act on the pipeline.
    sequence validate|preview    Build and dry run a message sequence
    pools list|show|create|...   Manage number pools and assign one to a sequence
    pool                          Interactive: build a pool, pick numbers, assign it
+   suppress list|add|remove      The durable per-person do-not-contact list
 
 Options
   --json                       Machine-readable output
@@ -140,6 +142,8 @@ const CAPABILITIES = [
   { id: "pools.removeNumber", cli: "blaster pools remove-number", mcp: "blaster_remove_pool_number", http: "DELETE /api/pools/:id/numbers/:phoneNumber" },
   { id: "pools.reorder", cli: "blaster pools reorder", mcp: "blaster_reorder_pool", http: "PUT /api/pools/:id/numbers" },
   { id: "sequences.setPool", cli: "blaster pools assign", mcp: "blaster_set_sequence_pool", http: "POST /api/sequences/:id/pool" },
+  { id: "suppressions.list", cli: "blaster suppress list", mcp: "blaster_list_suppressions", http: "GET /api/suppressions" },
+  { id: "suppressions.set", cli: "blaster suppress add|remove", mcp: "blaster_set_suppression", http: "POST /api/suppressions" },
   { id: "conversations.list", cli: "blaster inbox list", mcp: "blaster_list_conversations", http: "GET /api/conversations" },
   { id: "conversations.read", cli: "blaster inbox show", mcp: "blaster_get_messages", http: "GET /api/conversations/:id/messages" },
   { id: "auth.login", cli: "blaster login", mcp: "", http: "" },
@@ -324,6 +328,15 @@ async function main(): Promise<number> {
         return 0;
       }
       return await poolsMain(positional.slice(1), flags, json);
+    }
+
+    case "suppress":
+    case "suppressions": {
+      if (positional[0] === "help") {
+        console.log(SUPPRESS_USAGE);
+        return 0;
+      }
+      return await suppressMain(positional.slice(1), flags, json);
     }
 
     default: {

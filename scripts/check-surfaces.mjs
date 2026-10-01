@@ -63,12 +63,22 @@ function implementedTools(source) {
   return names;
 }
 
-/** Every `METHOD /path` the Hono surface registers, with the `/api` prefix resolved. */
+/**
+ * Every `METHOD /path` the Hono surface registers, with the `/api` prefix
+ * resolved.
+ *
+ * Any Hono instance registers routes; a capability's HTTP surface must exist on
+ * one of them. Rather than enumerate the sub-app names (which drift as sub-apps
+ * are added), this reads every `<something>.get|post|put|delete|patch("...")`
+ * and prefixes `app`-registered paths with nothing and all others with `/api`,
+ * which is how the router mounts them.
+ */
 function httpRoutes(source) {
   const routes = new Set();
-  const pattern = /\b(app|inbox|pools)\.(get|post|put|delete|patch)\(\s*"([^"]+)"/g;
+  const pattern = /\b(\w+)\.(get|post|put|delete|patch)\(\s*"([^"]+)"/g;
   for (const match of source.matchAll(pattern)) {
     const [, app, method, path] = match;
+    // `app` mounts at the root; every sub-app is mounted under `/api`.
     const full = app === "app" ? path : `/api${path}`;
     routes.add(`${method.toUpperCase()} ${full}`);
   }

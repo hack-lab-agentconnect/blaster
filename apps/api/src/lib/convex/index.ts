@@ -8,6 +8,7 @@ export type {
   PoolResult,
   ReadResult,
   StatusResult,
+  SuppressionRow,
 } from "./types.ts";
 export {
   addPoolNumber,
@@ -20,8 +21,10 @@ export {
   listLedgerNumbers,
   listPools,
   listSequences,
+  listSuppressions,
   recordInboundMessage,
   removePoolNumber,
   reorderPoolNumbers,
   setSequencePool,
+  setSuppression,
 } from "./helpers/index.ts";

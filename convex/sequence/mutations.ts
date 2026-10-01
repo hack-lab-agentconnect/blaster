@@ -9,6 +9,7 @@ import {
 } from "../../packages/core/src/pipeline/sequence/index";
 import { applySentOutcome, draftFromArgs } from "./model.js";
 import { claimSendCapacity as claimCapacity, type SendCapacity } from "../rateLimit.js";
+import { isSuppressed } from "../suppressions/model.js";
 import {
   applyScheduleArgsValidator,
   claimStepArgsValidator,
@@ -145,6 +146,14 @@ export const enroll = mutation({
     if (!sequence) throw new Error(`unknown sequence ${args.sequenceId}`);
     if (sequence.status !== "active") {
       throw new Error(`sequence ${args.sequenceId} is ${sequence.status}, so nothing can be enrolled`);
+    }
+
+    // Refuse to enroll a suppressed peer. This is the durable check the
+    // enrollment snapshot cannot make: a person who sent STOP in another
+    // sequence, from another number, must not be enrolled here. The snapshot
+    // below still covers the case Convex cannot ask Twenty about.
+    if (args.to && (await isSuppressed(ctx, args.to))) {
+      throw new Error(`${args.to} is suppressed, so nothing can be enrolled`);
     }
 
     // The steps of one sequence, which enrollment copies into the enrollment's

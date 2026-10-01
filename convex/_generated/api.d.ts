@@ -26,12 +26,12 @@ import type * as pool_mutations from "../pool/mutations.js";
 import type * as pool_queries from "../pool/queries.js";
 import type * as pool_types from "../pool/types.js";
 import type * as rateLimit from "../rateLimit.js";
-import type * as schema_conversations from "../schema/conversations.js";
-import type * as schema_discovery from "../schema/discovery.js";
+import type * as schema_conversations from "../schema/conversations.js";import type * as schema_discovery from "../schema/discovery.js";
 import type * as schema_messaging from "../schema/messaging.js";
 import type * as schema_phone from "../schema/phone.js";
 import type * as schema_pool from "../schema/pool.js";
 import type * as schema_sequences from "../schema/sequences.js";
+import type * as schema_suppressions from "../schema/suppressions.js";
 import type * as sequence_actions from "../sequence/actions.js";
 import type * as sequence_helpers from "../sequence/helpers.js";
 import type * as sequence_index from "../sequence/index.js";
@@ -40,6 +40,10 @@ import type * as sequence_mutations from "../sequence/mutations.js";
 import type * as sequence_queries from "../sequence/queries.js";
 import type * as sequence_types from "../sequence/types.js";
 import type * as sequence_utils from "../sequence/utils.js";
+import type * as suppressions_index from "../suppressions/index.js";
+import type * as suppressions_model from "../suppressions/model.js";
+import type * as suppressions_mutations from "../suppressions/mutations.js";
+import type * as suppressions_types from "../suppressions/types.js";
 
 import type {
   ApiFromModules,
@@ -72,6 +76,7 @@ declare const fullApi: ApiFromModules<{
   "schema/phone": typeof schema_phone;
   "schema/pool": typeof schema_pool;
   "schema/sequences": typeof schema_sequences;
+  "schema/suppressions": typeof schema_suppressions;
   "sequence/actions": typeof sequence_actions;
   "sequence/helpers": typeof sequence_helpers;
   "sequence/index": typeof sequence_index;
@@ -80,6 +85,10 @@ declare const fullApi: ApiFromModules<{
   "sequence/queries": typeof sequence_queries;
   "sequence/types": typeof sequence_types;
   "sequence/utils": typeof sequence_utils;
+  "suppressions/index": typeof suppressions_index;
+  "suppressions/model": typeof suppressions_model;
+  "suppressions/mutations": typeof suppressions_mutations;
+  "suppressions/types": typeof suppressions_types;
 }>;
 
 /**
