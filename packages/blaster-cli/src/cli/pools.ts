@@ -16,7 +16,7 @@ import {
   type SendingNumber,
   type SequenceOption,
 } from "@blaster/core";
-import { loadHome, type SessionRecord } from "./login.ts";
+import { ensureLiveSession, loadHome, loginMain } from "./login.ts";
 import type { CliFlags } from "./inbox.ts";
 import {
   abort,
@@ -60,18 +60,43 @@ Options
 Reads the operator session written by "blaster login". The interactive wizard
 requires that session; without it, run "blaster login" first.`;
 
-function clientFromSession(flags: CliFlags, root: string): BlasterApiClient | number {
+/**
+ * A live client for the operator's signed-in API, or an exit code with the
+ * reason already printed.
+ *
+ * Goes through `ensureLiveSession` rather than reading the stored token: a
+ * stored access token expires on its own, and using it directly makes a
+ * refreshable session look broken. When the session cannot be produced and a
+ * human is watching, a sign-in is offered rather than demanded. This is the
+ * login gate the pool commands sit behind; `help` and usage never reach it.
+ */
+async function liveClient(flags: CliFlags, json: boolean, root: string): Promise<BlasterApiClient | number> {
   const home = loadHome(root);
   const explicit = typeof flags.get("api-url") === "string" ? (flags.get("api-url") as string) : null;
-  const apiUrl = explicit ?? home.config.apiUrl ?? Object.keys(home.sessions)[0] ?? null;
+  const apiUrl =
+    (explicit !== null && explicit !== "" ? explicit : null) ??
+    home.config.apiUrl ??
+    Object.keys(home.sessions)[0] ??
+    null;
   if (!apiUrl) {
-    console.error('blaster pools: no signed-in API. Run "blaster login" first, or pass --api-url.');
+    console.error('blaster pool: no signed-in API. Run "blaster login" first, or pass --api-url.');
     return 1;
   }
-  const session: SessionRecord | undefined = home.sessions[apiUrl];
+  let session = await ensureLiveSession(root, apiUrl);
   if (!session) {
-    console.error(`blaster pools: no session for ${apiUrl}. Run "blaster login" first.`);
-    return 1;
+    if (!isInteractive(json)) {
+      console.error(`blaster pool: no live session for ${apiUrl}. Run "blaster login" first.`);
+      return 1;
+    }
+    const code = await loginMain(new Map([["api-url", apiUrl]]), json, root);
+    if (code !== 0) return code;
+    // Re-read rather than trusting the record from before the sign-in, because
+    // the sign-in is what just rewrote it.
+    session = await ensureLiveSession(root, apiUrl);
+    if (!session) {
+      console.error(`blaster pool: no live session for ${apiUrl}. Run "blaster login" first.`);
+      return 1;
+    }
   }
   return createBlasterApiClient({ baseUrl: apiUrl, accessToken: session.accessToken });
 }
@@ -240,7 +265,7 @@ export async function poolsMain(
       console.log(POOLS_USAGE);
       return 0;
     }
-    const client = clientFromSession(flags, root);
+    const client = await liveClient(flags, json, root);
     if (typeof client === "number") return client;
     try {
       return await poolsWizard(client, flags, json);
@@ -249,7 +274,7 @@ export async function poolsMain(
     }
   }
 
-  const client = clientFromSession(flags, root);
+  const client = await liveClient(flags, json, root);
   if (typeof client === "number") return client;
 
   try {

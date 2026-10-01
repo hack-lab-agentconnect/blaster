@@ -25,6 +25,7 @@ import type * as pool_model from "../pool/model.js";
 import type * as pool_mutations from "../pool/mutations.js";
 import type * as pool_queries from "../pool/queries.js";
 import type * as pool_types from "../pool/types.js";
+import type * as rateLimit from "../rateLimit.js";
 import type * as schema_conversations from "../schema/conversations.js";
 import type * as schema_discovery from "../schema/discovery.js";
 import type * as schema_messaging from "../schema/messaging.js";
@@ -64,6 +65,7 @@ declare const fullApi: ApiFromModules<{
   "pool/mutations": typeof pool_mutations;
   "pool/queries": typeof pool_queries;
   "pool/types": typeof pool_types;
+  rateLimit: typeof rateLimit;
   "schema/conversations": typeof schema_conversations;
   "schema/discovery": typeof schema_discovery;
   "schema/messaging": typeof schema_messaging;
@@ -108,4 +110,5 @@ export declare const internal: FilterApi<
 
 export declare const components: {
   agent: import("@convex-dev/agent/_generated/component.js").ComponentApi<"agent">;
+  rateLimiter: import("@convex-dev/rate-limiter/_generated/component.js").ComponentApi<"rateLimiter">;
 };

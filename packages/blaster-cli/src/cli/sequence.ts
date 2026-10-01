@@ -18,15 +18,19 @@
 
 import {
   DEFAULT_OPTIONS,
+  createBlasterApiClient,
   dryRunEnrollment,
   summarise,
   validateDraft,
+  type BlasterApiClient,
   type EligibilityInput,
   type Recipient,
+  type SendingNumber,
   type SequenceDraft,
   type SequenceStepDraft,
 } from "@blaster/core";
-import { askText, begin, finish, isInteractive, note } from "./prompt.ts";
+import { askSelect, askText, abort, begin, fail, finish, isInteractive, note } from "./prompt.ts";
+import { ensureLiveSession, loadHome, loginMain } from "./login.ts";
 import { deleteDraft, findDraft, readDrafts, saveDraft } from "./sequence-store.ts";
 
 export type Json = (value: unknown) => string;
@@ -45,11 +49,20 @@ export interface SequenceContext {
     reason: string | null;
     detail: string | null;
   };
+  /**
+   * The resolved live session, set by the first thing that needs one.
+   *
+   * Absent until resolved, then either the client or null for "could not sign
+   * in", so the up-front check and the sending-number lookup do not each pay for
+   * the same validation round trip. Injected by tests that do not want one.
+   */
+  session?: { client: BlasterApiClient; apiUrl: string } | null;
 }
 
 const DRAFT_FILE_LABEL = ".blaster/sequences.json";
 
-const SEQUENCE_USAGE = `Usage: blaster sequence <action> [name]
+/** Shared with the top-level dispatcher so the two cannot drift apart. */
+export const SEQUENCE_USAGE = `Usage: blaster sequence <action> [name]
 
   new [name]     Build a draft interactively, check it, and record it
   list           What is recorded
@@ -61,12 +74,28 @@ const SEQUENCE_USAGE = `Usage: blaster sequence <action> [name]
   validate       Check a JSON draft and print every problem at once
   preview        Dry run a JSON draft against --recipients
 
+With no action in a terminal, this opens a menu instead: pick what to do and
+it asks for the rest. Piped, under CI, or with --json it prints this instead,
+so nothing ever blocks on a prompt that cannot be answered.
+
 Drafts live in ${DRAFT_FILE_LABEL}. They are local working material: a draft
 becomes real when the runner picks it up, and the runner does not exist yet, so
 \`blaster sequence run\` says so rather than pretending otherwise.
 
 Add --recipients '[{"id":"1","to":"+15551234567","stateCode":"NY"}]' to any
-read-only action for a per-recipient compliance plan.`;
+read-only action for a per-recipient compliance plan.
+
+A draft as JSON on stdin or via --draft, for example:
+  {
+    "name": "Spring outreach",
+    "fromNumber": "+353871234567",
+    "campaignId": "<twenty campaign id>",
+    "options": { "stopOnReply": true, "dailyCapPerRecipient": 2 },
+    "steps": [
+      { "text": "First message", "delayHours": 0, "isStop": false },
+      { "text": "Follow up in two days", "delayHours": 48, "isStop": false }
+    ]
+  }`;
 
 /** The three things standing between a recorded draft and a self-running sequence. */
 export const RUNNER_GAPS: readonly string[] = [
@@ -193,6 +222,114 @@ function printSteps(draft: SequenceDraft): void {
   console.log("");
 }
 
+/**
+ * A live client for the operator's signed-in API, or an exit code with the
+ * reason already printed.
+ *
+ * Goes through `ensureLiveSession` rather than reading the stored token, which
+ * is the whole point: a stored access token expires on its own, and using it
+ * directly makes a perfectly refreshable session look like a broken one. The
+ * stored record also carries a refresh token, so an expired session is normally
+ * renewed here without the operator noticing. Only when that fails, and a human
+ * is watching, is a sign-in offered rather than demanded.
+ *
+ * Memoised on the context so the menu's up-front check and the sending-number
+ * lookup are one round trip between them rather than two.
+ */
+async function liveClient(
+  ctx: SequenceContext,
+): Promise<{ client: BlasterApiClient; apiUrl: string } | number> {
+  if (ctx.session !== undefined) {
+    return ctx.session === null ? 1 : ctx.session;
+  }
+  const home = loadHome(ctx.root);
+  const explicit = ctx.flags.get("api-url");
+  const apiUrl =
+    (typeof explicit === "string" && explicit !== "" ? explicit : null) ??
+    home.config.apiUrl ??
+    Object.keys(home.sessions)[0] ??
+    null;
+  if (!apiUrl) {
+    console.error('blaster sequence: no signed-in API. Run "blaster login" first, or pass --api-url.');
+    ctx.session = null;
+    return 1;
+  }
+  let session = await ensureLiveSession(ctx.root, apiUrl);
+  if (!session) {
+    if (!isInteractive(ctx.json)) {
+      console.error(`blaster sequence: no live session for ${apiUrl}. Run "blaster login" first.`);
+      ctx.session = null;
+      return 1;
+    }
+    const code = await loginMain(new Map([["api-url", apiUrl]]), ctx.json, ctx.root);
+    if (code !== 0) {
+      ctx.session = null;
+      return code;
+    }
+    // Re-read rather than trusting the record from before the sign-in, because
+    // the sign-in is what just rewrote it.
+    session = await ensureLiveSession(ctx.root, apiUrl);
+    if (!session) {
+      console.error(`blaster sequence: no live session for ${apiUrl}. Run "blaster login" first.`);
+      ctx.session = null;
+      return 1;
+    }
+  }
+  ctx.session = {
+    client: createBlasterApiClient({ baseUrl: apiUrl, accessToken: session.accessToken }),
+    apiUrl,
+  };
+  return ctx.session;
+}
+
+/**
+ * The numbers this workspace can actually send from.
+ *
+ * Read from the account rather than typed, for the reason `blaster send` reads
+ * them too: a sending number has to correspond to a record the API will accept,
+ * and a number typed from memory is rejected at send time, long after the
+ * operator was told the sequence was fine. Only rows that can send are listed.
+ *
+ * Returns the numbers, or an exit code with the reason already printed.
+ */
+async function sendingNumbers(ctx: SequenceContext): Promise<SendingNumber[] | number> {
+  const live = await liveClient(ctx);
+  if (typeof live === "number") return live;
+  try {
+    return await live.client.listSendingNumbers();
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error(`blaster sequence: could not read sending numbers: ${detail}`);
+    return 1;
+  }
+}
+
+/**
+ * Pick the sending number, from the account's own records.
+ *
+ * Always a prompt, even when the workspace owns exactly one number. A sequence
+ * commits a recipient to days of messages from that number, so which number it
+ * is bound to is worth showing rather than deciding quietly; the single option
+ * is offered as the initial value so agreeing costs one keystroke and nothing
+ * more.
+ */
+async function chooseFromNumber(ctx: SequenceContext): Promise<string | number> {
+  const numbers = await sendingNumbers(ctx);
+  if (typeof numbers === "number") return numbers;
+  if (numbers.length === 0) {
+    console.error(
+      "blaster sequence: no sendable numbers. Set messagingProfileId on an agencyPhones record in Twenty first.",
+    );
+    return 1;
+  }
+  const picked = await askSelect(
+    "Sending number?",
+    numbers.map((row) => ({ value: row.phoneNumber, label: row.phoneNumber, hint: row.label })),
+    numbers.length === 1 ? { initialValue: numbers[0]!.phoneNumber } : {},
+  );
+  return picked ?? abort("Nothing was recorded,");
+}
+
 async function newDraft(ctx: SequenceContext): Promise<number> {
   const interactive = isInteractive(ctx.json);
   if (interactive) begin("New sequence");
@@ -211,15 +348,17 @@ async function newDraft(ctx: SequenceContext): Promise<number> {
   }
 
   const fromFlag = ctx.flags.get("from");
-  const from =
-    typeof fromFlag === "string" && fromFlag
-      ? fromFlag
-      : interactive
-        ? await askText("Sending number (E.164)", { placeholder: "+353871234567" })
-        : null;
+  let from: string | null = typeof fromFlag === "string" && fromFlag ? fromFlag : null;
   if (!from) {
-    console.error("blaster sequence new: a sending number is required");
-    return 1;
+    if (!interactive) {
+      console.error("blaster sequence new: a sending number is required");
+      return 1;
+    }
+    // Offered the workspace's own numbers rather than a free-text prompt, so the
+    // recorded draft cannot name a number the account does not own.
+    const chosen = await chooseFromNumber(ctx);
+    if (typeof chosen === "number") return chosen;
+    from = chosen;
   }
 
   const steps: SequenceStepDraft[] = [];
@@ -413,6 +552,116 @@ async function removeDraft(ctx: SequenceContext, name: string | undefined): Prom
 }
 
 
+/**
+ * Which recorded sequence an action applies to.
+ *
+ * A menu of what exists rather than a free-text name, because the operator
+ * already has the list in front of them and mistyping a name is the only way
+ * this can go wrong. Returns null on cancel or when nothing is recorded.
+ */
+async function pickName(ctx: SequenceContext, verb: string): Promise<string | null> {
+  const drafts = readDrafts(ctx.root);
+  if (drafts.length === 0) {
+    fail(`No sequences recorded yet, so there is nothing to ${verb}.`);
+    return null;
+  }
+  return await askSelect(
+    `Which sequence to ${verb}?`,
+    drafts.map((entry) => ({
+      value: entry.draft.name,
+      label: entry.draft.name,
+      hint: entry.draft.fromNumber,
+    })),
+  );
+}
+
+/**
+ * Run one chosen action and report whether to keep the menu open.
+ *
+ * A non-zero result ends the session rather than looping. Returning to the menu
+ * after a failure would throw away the exit code the action just produced, and a
+ * caller that scripted this would see success for a run that recorded nothing.
+ */
+async function dispatch(
+  ctx: SequenceContext,
+  choice: string,
+): Promise<"again" | number> {
+  switch (choice) {
+    case "new":
+      return (await newDraft(ctx)) === 0 ? "again" : 1;
+    case "list":
+      return (await listDrafts(ctx)) === 0 ? "again" : 1;
+    case "show": {
+      const name = await pickName(ctx, "show");
+      if (name === null) return abort("Nothing");
+      return (await showDraft(ctx, name)) === 0 ? "again" : 1;
+    }
+    case "run": {
+      const name = await pickName(ctx, "dry run");
+      if (name === null) return abort("Nothing");
+      return (await runDraft(ctx, name)) === 0 ? "again" : 1;
+    }
+    case "edit": {
+      const name = await pickName(ctx, "edit");
+      if (name === null) return abort("Nothing");
+      return (await editDraft(ctx, name)) === 0 ? "again" : 1;
+    }
+    case "rm": {
+      const name = await pickName(ctx, "forget");
+      if (name === null) return abort("Nothing");
+      return (await removeDraft(ctx, name)) === 0 ? "again" : 1;
+    }
+    default:
+      return "again";
+  }
+}
+
+/**
+ * What a bare `blaster sequence` opens.
+ *
+ * No action is a question rather than a request for help text, so in a terminal
+ * it answers with a menu and asks for whatever the choice still needs. It loops
+ * because the useful thing after building a draft is to look at it, and the
+ * useful thing after looking at it is to edit it; making the operator retype
+ * `blaster sequence show <name>` to get there would be the friction this
+ * replaces.
+ *
+ * Actions that need a recorded sequence are only offered when one exists, so the
+ * menu cannot dead-end on a choice that has nothing to act on.
+ */
+export async function sequenceMenu(ctx: SequenceContext): Promise<number> {
+  begin("blaster sequence");
+  // Checked before the first question, not when the first action happens to need
+  // it. Every action here reads the account, and finding out after typing a
+  // sequence name that the session is dead is the worst order to find out in.
+  const live = await liveClient(ctx);
+  if (typeof live === "number") return live;
+  for (;;) {
+    const recorded = readDrafts(ctx.root).length;
+    const choice = await askSelect("What next?", [
+      { value: "new", label: "New sequence", hint: "build a draft" },
+      ...(recorded > 0
+        ? [
+            { value: "show", label: "Show one", hint: "steps and plan" },
+            { value: "run", label: "Dry run one", hint: "what it would do" },
+            { value: "edit", label: "Edit first message", hint: "rewrite step one" },
+          ]
+        : []),
+      { value: "list", label: "List recorded", hint: `${recorded} so far` },
+      ...(recorded > 0 ? [{ value: "rm", label: "Forget a draft", hint: "delete it" }] : []),
+      { value: "__done", label: "Done", hint: "leave the menu" },
+    ]);
+    if (choice === null) return abort("Nothing");
+    if (choice === "__done") {
+      finish("Nothing else to do.");
+      return 0;
+    }
+
+    const outcome = await dispatch(ctx, choice);
+    if (outcome !== "again") return outcome;
+  }
+}
+
 export async function sequenceMain(
   ctx: SequenceContext,
   action: string | undefined,
@@ -435,8 +684,15 @@ export async function sequenceMain(
     case "rm":
     case "delete":
       return await removeDraft(ctx, name);
-    case "help":
     case undefined:
+      // The menu where there is someone to answer it. Everywhere else the usage
+      // text is the right answer, because a prompt on a pipe hangs forever.
+      if (!isInteractive(ctx.json)) {
+        console.log(SEQUENCE_USAGE);
+        return 0;
+      }
+      return await sequenceMenu(ctx);
+    case "help":
       console.log(SEQUENCE_USAGE);
       return 0;
     default:

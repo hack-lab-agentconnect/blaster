@@ -11,6 +11,9 @@ importers:
       '@convex-dev/agent':
         specifier: ^0.7.3
         version: 0.7.3(@ai-sdk/provider-utils@5.0.51(zod@4.6.5))(@ai-sdk/provider@4.0.19)(ai@7.0.122(zod@4.6.5))(convex-helpers@0.1.124(@standard-schema/spec@1.1.0)(convex@1.46.0(react@18.3.1))(hono@4.13.9)(react@18.3.1)(typescript@5.6.3)(zod@4.6.5))(convex@1.46.0(react@18.3.1))(react@18.3.1)
+      '@convex-dev/rate-limiter':
+        specifier: ^0.4.0
+        version: 0.4.0(@standard-schema/spec@1.1.0)(convex@1.46.0(react@18.3.1))(hono@4.13.9)(react@18.3.1)(typescript@5.6.3)(zod@4.6.5)
     devDependencies:
       '@blaster/cli':
         specifier: workspace:^
@@ -329,10 +332,24 @@ packages:
       react:
         optional: true
 
+  '@convex-dev/batch-worker@0.3.4':
+    resolution: {integrity: sha512-CKeOrPFsPoIKozMNP/qKExSwE6vd63QDKbZIbchK+P3S7fyGuFjRLbTg6+QmC/mzOjn6I5N8zo+k/SdXqeaA2g==}
+    peerDependencies:
+      convex: ^1.43.0
+
   '@convex-dev/eslint-plugin@5.0.0':
     resolution: {integrity: sha512-UFhZ7bJBo4mTfa829/mntoAwyC9aKwXe6dxCV7PianSdAfFIbdCwCjWPBmhqn1hNlpqhVU385C/vjL8CXfxA2Q==}
     peerDependencies:
       convex: ^1.43.0
+
+  '@convex-dev/rate-limiter@0.4.0':
+    resolution: {integrity: sha512-AEXbo8+pMT1bPlOJiofmue55EoiFp9ygCcEnckx+RENoPjRYEg5jiihAtaD5TKDwdmHJyvLwNQ1h+MbhgvMyOA==}
+    peerDependencies:
+      convex: ^1.43.0
+      react: ^18.2.0 || ^19.0.0
+    peerDependenciesMeta:
+      react:
+        optional: true
 
   '@esbuild/aix-ppc64@0.21.5':
     resolution: {integrity: sha512-1SDgH6ZSPTlggy1yI6+Dbkiz8xzpHJEVAlF/AM1tHPLsf5STom9rwtjE4hKAF20FfXXNTFqEYXyJNWh1GiZedQ==}
@@ -2668,6 +2685,17 @@ snapshots:
       '@ungap/structured-clone': 1.4.0
       react: 18.3.1
 
+  '@convex-dev/batch-worker@0.3.4(@standard-schema/spec@1.1.0)(convex@1.46.0(react@18.3.1))(hono@4.13.9)(react@18.3.1)(typescript@5.6.3)(zod@4.6.5)':
+    dependencies:
+      convex: 1.46.0(react@18.3.1)
+      convex-helpers: 0.1.124(@standard-schema/spec@1.1.0)(convex@1.46.0(react@18.3.1))(hono@4.13.9)(react@18.3.1)(typescript@5.6.3)(zod@4.6.5)
+    transitivePeerDependencies:
+      - '@standard-schema/spec'
+      - hono
+      - react
+      - typescript
+      - zod
+
   '@convex-dev/eslint-plugin@5.0.0(convex@1.46.0(react@18.3.1))(eslint@10.11.0(jiti@1.21.7))(typescript@5.6.3)':
     dependencies:
       '@typescript-eslint/types': 8.58.2
@@ -2677,6 +2705,18 @@ snapshots:
       - eslint
       - supports-color
       - typescript
+
+  '@convex-dev/rate-limiter@0.4.0(@standard-schema/spec@1.1.0)(convex@1.46.0(react@18.3.1))(hono@4.13.9)(react@18.3.1)(typescript@5.6.3)(zod@4.6.5)':
+    dependencies:
+      '@convex-dev/batch-worker': 0.3.4(@standard-schema/spec@1.1.0)(convex@1.46.0(react@18.3.1))(hono@4.13.9)(react@18.3.1)(typescript@5.6.3)(zod@4.6.5)
+      convex: 1.46.0(react@18.3.1)
+    optionalDependencies:
+      react: 18.3.1
+    transitivePeerDependencies:
+      - '@standard-schema/spec'
+      - hono
+      - typescript
+      - zod
 
   '@esbuild/aix-ppc64@0.21.5':
     optional: true

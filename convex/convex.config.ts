@@ -1,14 +1,18 @@
 import { defineApp } from "convex/server";
 import { v } from "convex/values";
 import agent from "@convex-dev/agent/convex.config";
+import rateLimiter from "@convex-dev/rate-limiter/convex.config";
 
 /**
  * Blaster's Convex app.
  *
- * One component is mounted:
+ * Two components are mounted:
  *   - agent, which owns conversation threads and message history. One thread
  *     per sequence enrollment (keyed by Twenty recipient id) holds the linear
  *     SMS history; see convex/threads.ts for the app-side wrappers.
+ *   - rateLimiter, which caps outbound Telnyx throughput. The limits and why
+ *     each one exists are in convex/rateLimit.ts; the component is mounted here
+ *     because that is where its tables live.
  *
  * Previously mounted here were `@agentmail/convex`, `@listeningkit/telnyx`,
  * and `@listeningkit/treg`, but those packages are private and were never
@@ -33,5 +37,6 @@ const app = defineApp({
 });
 
 app.use(agent);
+app.use(rateLimiter);
 
 export default app;

@@ -1,4 +1,5 @@
 import type { PoolMemberState } from "../../packages/core/src/pipeline/pool/index.js";
+import { TELNYX_PER_NUMBER_PERIOD_MS } from "../rateLimit.js";
 
 /**
  * Pure helpers for the pool domain.
@@ -10,8 +11,17 @@ import type { PoolMemberState } from "../../packages/core/src/pipeline/pool/inde
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** A second between sends from one number, the conservative default. */
-export const DEFAULT_MIN_SPACING_MS = 1_000;
+/**
+ * A pool number's default pacing floor: the send rate limiter's per-number
+ * period (see convex/rateLimit.ts, `telnyxSendPerNumber`).
+ *
+ * The pool paces, the limiter admits. Deriving this from the limiter's own
+ * period is what keeps the two from competing: a pool that handed out a number
+ * faster than the bucket refills would only ever earn a refusal, and one that
+ * paced much slower would leave throughput unused. The limiter remains
+ * authoritative either way, because the runner defers when it refuses.
+ */
+export const DEFAULT_MIN_SPACING_MS = TELNYX_PER_NUMBER_PERIOD_MS;
 
 /** No per-number daily cap by default; the operator sets a real one. */
 export const DEFAULT_DAILY_CAP_PER_NUMBER = 0;

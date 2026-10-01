@@ -129,6 +129,13 @@ forever. The number's budget is spent by an internal `consumeSender` mutation
 only once the step is claimed, so a deferred or lost step never costs a number an
 allowance. A sequence with no pool is unchanged and uses its fixed `fromNumber`.
 
+The pool is the selection authority; the send rate limiter in
+`convex/rateLimit.ts` stays the admission control. The runner claims limiter
+capacity for the pool-chosen number immediately before the Telnyx call and defers
+when it refuses, so the pool's `minSpacingMs` (defaulted to the limiter's
+per-number period) paces the pool without outrunning the account ceiling. See
+[pools.md](pools.md), "The pool and the send rate limiter".
+
 ## Quiet hours
 
 Marketing texts may not be sent outside **08:00–21:00 in the recipient's local

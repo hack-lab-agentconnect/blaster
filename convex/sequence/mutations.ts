@@ -8,6 +8,7 @@ import {
   type SequenceStepDraft,
 } from "../../packages/core/src/pipeline/sequence/index";
 import { applySentOutcome, draftFromArgs } from "./model.js";
+import { claimSendCapacity as claimCapacity, type SendCapacity } from "../rateLimit.js";
 import {
   applyScheduleArgsValidator,
   claimStepArgsValidator,
@@ -341,5 +342,24 @@ export const completeEnrollment = internalMutation({
       lastSkipReason: undefined,
     });
     return { status: "completed" };
+  },
+});
+
+/**
+ * Ask for permission to send one message, consuming provider capacity if granted.
+ *
+ * Exists as its own internal mutation because the rate limiter reads and writes
+ * the database and `runEnrollmentStep` is an action, which has no `ctx.db`. The
+ * claim therefore has to be its own transaction, reached by `ctx.runMutation`.
+ *
+ * Splitting it this way also keeps the check and the consumption together: if
+ * either limit refuses, nothing is consumed, so a refusal means "not yet" rather
+ * than "attempted". See convex/rateLimit.ts for the limits and why they are set
+ * where they are.
+ */
+export const claimSendCapacity = internalMutation({
+  args: { fromNumber: v.string() },
+  handler: async (ctx, args): Promise<SendCapacity> => {
+    return await claimCapacity(ctx, { fromNumber: args.fromNumber });
   },
 });

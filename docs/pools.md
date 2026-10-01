@@ -72,11 +72,38 @@ The runner uses this twice:
    `lastSkipReason: "pool-rate-limited"`. If the pool has no active numbers at
    all it parks the enrollment `awaiting-human` with `lastSkipReason:
    "pool-empty"`. Neither case sends and neither drops the message.
-2. **After it owns the claim**, it calls the internal `consumeSender` mutation,
-   which re-selects and spends the number's budget in one transaction: it
-   increments `sentToday`, sets `nextAvailableAt = now + minSpacingMs`, advances
-   `pools.cursor`, and refreshes the rollup. Two runners cannot both spend the
-   last unit of one number's allowance.
+2. **After it owns the claim**, and after the send rate limiter grants capacity,
+   it calls the internal `consumeSender` mutation, which re-selects and spends
+   the number's budget in one transaction: it increments `sentToday`, sets
+   `nextAvailableAt = now + minSpacingMs`, advances `pools.cursor`, and refreshes
+   the rollup. Two runners cannot both spend the last unit of one number's
+   allowance.
+
+## The pool and the send rate limiter
+
+There are two rate authorities, and this is the relationship between them.
+
+- **`convex/rateLimit.ts` is the admission control for every send**, pooled or
+  not. `telnyxSend` is the account ceiling; `telnyxSendPerNumber` is a token
+  bucket of one send per second per number (burst 3). It is checked and consumed
+  in one transaction by `claimSendCapacity`.
+- **The pool is the selection authority.** It decides *which* number sends, and
+  paces with `minSpacingMs`, whose default is the limiter's own per-number period
+  (`TELNYX_PER_NUMBER_PERIOD_MS`), so the two agree instead of competing.
+
+The runner claims limiter capacity for the pool-chosen number immediately before
+the Telnyx call. A refusal defers the enrollment (`send-capacity-exhausted`,
+retried next tick) rather than failing or parking it, and the pool's own budget
+is reserved only *after* capacity is granted, so a limiter refusal costs no
+number an allowance. In sequence: choose a number, claim capacity, reserve the
+pool budget, send.
+
+The limiter is load-bearing rather than belt-and-braces because of this repo's own
+error handling: `classifySendResult` treats any 4xx, a 429 included, as a
+definite failure with `retryable: false`, so an oversent 429 parks the enrollment
+for a human instead of backing off. The cap has to prevent the 429; the pool must
+not outrun it. Tuning either value is a change to this relationship, not to one
+file.
 
 ## Managing a pool from a surface
 

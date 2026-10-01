@@ -212,30 +212,6 @@ export const runEnrollmentStep = internalAction({
       return { kind: "sentinel", reason: "replied-before-send" };
     }
 
-    // Reserve the sender now that the claim is ours and the enrollment is still
-    // active. This is the moment the number's rate budget is spent, in the same
-    // step as the send, so a deferred or lost step never costs a number an
-    // allowance. Losing the reservation here is rare (another runner took the
-    // last slot); the answer is still to defer, never to send unpaced.
-    if (sequence.poolId) {
-      const reserved = await ctx.runMutation(internal.pool.mutations.consumeSender, {
-        poolId: sequence.poolId as Id<"pools">,
-        now,
-      });
-      if (!reserved.sender) {
-        await ctx.runMutation(internal.sequence.mutations.applySchedule, {
-          enrollmentId: enrollment._id,
-          status: "active",
-          nextDueAt: reserved.soonestNextAvailableAt ?? now + 60_000,
-          lastSkipReason: "pool-rate-limited",
-          attempts: enrollment.attempts ?? 0,
-        });
-        return { kind: "sentinel", reason: "pool-rate-limited" };
-      }
-      fromNumber = reserved.sender.phoneNumber;
-      numberProfileId = reserved.sender.messagingProfileId ?? null;
-    }
-
     // Typed, so a typo in the variable name is a build error. The guard stays
     // even though `convexEnv.TELNYX_API_KEY` is declared required: parking the
     // enrollment with a readable reason beats throwing an opaque error out of
@@ -266,12 +242,68 @@ export const runEnrollmentStep = internalAction({
 
     let outcome: RunOutcome;
     // The profile the eligibility check already accepted, resolved the same way
-    // rather than by a second independent decision.
-    const profile = resolveMessagingProfile(env, {
+    // rather than by a second independent decision. Re-resolved below if the
+    // pool's reservation returns a different number than the one read.
+    let profile = resolveMessagingProfile(env, {
       to,
       recipientCountry: enrollment.country ?? null,
       numberProfileId,
     });
+
+    // Capacity is claimed only once the send is certain to be attempted: after
+    // the number, the profile and the eligibility decision all say yes, and
+    // immediately before the provider call. Claiming earlier would spend tokens
+    // on sends that never happen. It is claimed for `fromNumber`, which is the
+    // pool's chosen number when a pool is assigned, so the account ceiling and
+    // the per-number bucket in convex/rateLimit.ts gate the pool path exactly
+    // as they gate a fixed-number sequence.
+    const capacity = await ctx.runMutation(internal.sequence.mutations.claimSendCapacity, {
+      fromNumber,
+    });
+    if (!capacity.ok) {
+      // A skip, not a failure: the step is still owed and `recordStep` leaves the
+      // cursor alone, so the enrollment stays due and the next tick tries again
+      // once capacity has recovered. Failing it instead would park the
+      // enrollment for a human over a limit we set ourselves.
+      await ctx.runMutation(internal.sequence.mutations.recordStep, {
+        enrollmentId: enrollment._id,
+        outcome: "skipped",
+        steps,
+        skipReason: "send-capacity-exhausted",
+      });
+      return { kind: "sentinel", reason: "send-capacity-exhausted" };
+    }
+
+    // Reserve the pool's own pacing budget only now that the provider call is
+    // certain to be attempted, so a limiter refusal above never costs a number an
+    // allowance. The pool picks WHICH number sends; the rate limiter above is
+    // what decides WHETHER it may, so the two do not compete: the pool paces,
+    // the limiter admits. Losing the reservation here is rare (another runner
+    // took the last slot); the answer is still to defer, never to send unpaced.
+    if (sequence.poolId) {
+      const reserved = await ctx.runMutation(internal.pool.mutations.consumeSender, {
+        poolId: sequence.poolId as Id<"pools">,
+        now,
+      });
+      if (!reserved.sender) {
+        await ctx.runMutation(internal.sequence.mutations.applySchedule, {
+          enrollmentId: enrollment._id,
+          status: "active",
+          nextDueAt: reserved.soonestNextAvailableAt ?? now + 60_000,
+          lastSkipReason: "pool-rate-limited",
+          attempts: enrollment.attempts ?? 0,
+        });
+        return { kind: "sentinel", reason: "pool-rate-limited" };
+      }
+      fromNumber = reserved.sender.phoneNumber;
+      numberProfileId = reserved.sender.messagingProfileId ?? null;
+      profile = resolveMessagingProfile(env, {
+        to,
+        recipientCountry: enrollment.country ?? null,
+        numberProfileId,
+      });
+    }
+
     try {
       const sent = await sendMessage({
         apiKey,
