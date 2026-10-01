@@ -1,7 +1,7 @@
 # Goal
 
 <!-- goal
-updated: 2026-10-01T18:11:17Z
+updated: 2026-10-01T21:27:53Z
 commit: goal: scope the pool objective and gate pushes on a fresh outline
 -->
 
@@ -79,6 +79,22 @@ the per-number or account ceiling.
 - packages/core/test/telnyx-ownership.test.ts
 - scripts/check-goal.mjs
 - scripts/check-surfaces.mjs
+- convex.json
+- convex/crons.ts
+- convex/schema/suppressions.ts
+- convex/suppressions/index.ts
+- convex/suppressions/model.ts
+- convex/suppressions/mutations.ts
+- convex/suppressions/types.ts
+- convex/test/README.md
+- convex/test/globals.d.ts
+- convex/test/harness.ts
+- convex/test/modules.ts
+- convex/test/refs.ts
+- convex/test/pool.test.ts
+- convex/test/conversations.test.ts
+- convex/test/suppressions.test.ts
+- packages/blaster-cli/src/cli/suppress.ts
 
 ## Task
 
@@ -93,8 +109,10 @@ the per-number or account ceiling.
 - [x] `docs/pools.md` describes the relation, rates, surfaces, and the inbound path
 - [x] Wayfinder map charted at `.scratch/reliable-pooled-outbound/` (destination, fog, decisions, tickets)
 - [x] Suppression model decided (ticket 01): a durable per-person `suppressions` row keyed on the E.164 peer, written by inbound STOP only, checked at enroll and send, lifted by an explicit human resolve
-- [ ] Durable per-peer suppression: implement the decided `suppressions` model in Convex
+- [x] Durable per-person suppression implemented (ticket 01): `convex/suppressions/`, enroll + send checks, API/CLI/MCP surfaces
+- [x] `convex/crons.ts` + `convex.json`: the runner is woken on a schedule (it never ran before)
+- [x] Convex integration-test harness (`convex/test/`): pool, conversations, suppressions against a real runtime
 - [ ] Decide how a contact reached from several pool numbers appears in the inbox (ticket 02, thread identity under rotation)
 - [ ] Decide the limiter/pool budget contract (ticket 03)
-- [ ] Add a `convex-test` harness so `campaignFor`, `consumeSender`, and `stopEnrollmentsForPeer` have real integration tests (ticket 04, blocked by 01 and 02)
+- [ ] Convex-Twenty seam: enroll over `agencyProspects`, mirror `outboundState` back (sequencer.md step 5)
 - [ ] Open the PR and get the pool branch merged to `main` (ticket 05)
