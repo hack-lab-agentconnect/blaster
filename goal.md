@@ -1,7 +1,7 @@
 # Goal
 
 <!-- goal
-updated: 2026-10-01T21:37:04Z
+updated: 2026-10-01T21:38:29Z
 commit: goal: scope the pool objective and gate pushes on a fresh outline
 -->
 
@@ -114,7 +114,7 @@ the per-number or account ceiling.
 - [x] Durable per-person suppression implemented (ticket 01): `convex/suppressions/`, enroll + send checks, API/CLI/MCP surfaces
 - [x] `convex/crons.ts` + `convex.json`: the runner is woken on a schedule (it never ran before)
 - [x] Convex integration-test harness (`convex/test/`): pool, conversations, suppressions against a real runtime
-- [ ] Decide how a contact reached from several pool numbers appears in the inbox (ticket 02, thread identity under rotation)
-- [ ] Decide the limiter/pool budget contract (ticket 03)
+- [x] Decided how a contact from several pool numbers appears in the inbox (ticket 02): per-number threads stay, the inbox gains a person-level grouping
+- [x] Decided the limiter/pool budget contract (ticket 03): limiter is the hard ceiling, pool paces at or under it
 - [x] Convex-Twenty seam: `sequence/actions.enrollRecipients` walks `agencyProspects` with the send filter DSL, enrolls, and mirrors `outboundState`; API/CLI/MCP surfaces
 - [ ] Open the PR and get the pool branch merged to `main` (ticket 05)
