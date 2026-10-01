@@ -1,7 +1,7 @@
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../../../../../convex/_generated/api.js";
 import type { Id } from "../../../../../../convex/_generated/dataModel.js";
-import type { ConversationMessageRow, ConversationSummary } from "@blaster/core";
+import type { ConversationMessageRow, ConversationSummary, PoolDetail, PoolNumberRow, PoolSummary } from "@blaster/core";
 
 /**
  * The API's Convex client.
@@ -158,4 +158,179 @@ export async function conversationMessages(
   } catch (error) {
     return { status: "failed", error: error instanceof Error ? error.message : String(error) };
   }
+}
+
+/**
+ * Pool reads and writes.
+ *
+ * The HTTP surface owns the pool contract: the CLI and MCP go through the
+ * shared `BlasterApiClient`, which calls these routes, so all three surfaces
+ * act on the same pool state. The Convex functions are the writers; this file
+ * only adapts their documents to the shared shapes in `@blaster/core`.
+ */
+
+/** A pool result, in the shape the routes map onto status codes. */
+export type PoolResult<T> =
+  | { status: "ok"; value: T }
+  | { status: "not-configured" }
+  | { status: "failed"; error: string };
+
+type ConvexPool = {
+  _id: string;
+  name: string;
+  status: "active" | "paused";
+  strategy: string;
+  cursor: number;
+  minSpacingMs: number;
+  dailyCapPerNumber: number;
+  activeNumberCount: number;
+  nextAvailableAt: number;
+  lastDispatchedAt?: number;
+  createdAt: number;
+};
+
+type ConvexPoolNumber = {
+  phoneNumberId: string;
+  phoneNumber: string;
+  order: number;
+  status: "active" | "paused" | "removed";
+  sentToday: number;
+  nextAvailableAt: number;
+  lastSentAt?: number;
+  assignedAt: number;
+  removedAt?: number;
+};
+
+function toPoolSummary(pool: ConvexPool): PoolSummary {
+  return {
+    id: pool._id,
+    name: pool.name,
+    status: pool.status,
+    strategy: pool.strategy,
+    cursor: pool.cursor,
+    minSpacingMs: pool.minSpacingMs,
+    dailyCapPerNumber: pool.dailyCapPerNumber,
+    activeNumberCount: pool.activeNumberCount,
+    nextAvailableAt: pool.nextAvailableAt,
+    lastDispatchedAt: pool.lastDispatchedAt ?? null,
+    createdAt: pool.createdAt,
+  };
+}
+
+function toPoolNumber(row: ConvexPoolNumber): PoolNumberRow {
+  return {
+    phoneNumberId: row.phoneNumberId,
+    phoneNumber: row.phoneNumber,
+    order: row.order,
+    status: row.status,
+    sentToday: row.sentToday,
+    nextAvailableAt: row.nextAvailableAt,
+    lastSentAt: row.lastSentAt ?? null,
+    assignedAt: row.assignedAt,
+    removedAt: row.removedAt ?? null,
+  };
+}
+
+function toPoolDetail(pool: ConvexPool & { numbers: ConvexPoolNumber[] }): PoolDetail {
+  return { ...toPoolSummary(pool), numbers: pool.numbers.map(toPoolNumber) };
+}
+
+/** Wrap a Convex call so an unconfigured deployment degrades instead of throwing. */
+async function poolCall<T>(call: () => Promise<T>): Promise<PoolResult<T>> {
+  const client = convexClient();
+  if (!client) return { status: "not-configured" };
+  try {
+    return { status: "ok", value: await call() };
+  } catch (error) {
+    return { status: "failed", error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+export async function listPools(): Promise<PoolResult<PoolSummary[]>> {
+  return poolCall(async () => {
+    const rows = await convexClient()!.query(api.pool.queries.listPools, {});
+    return rows.map(toPoolSummary);
+  });
+}
+
+export async function getPool(poolId: string): Promise<PoolResult<PoolDetail | null>> {
+  return poolCall(async () => {
+    const pool = await convexClient()!.query(api.pool.queries.getPool, {
+      poolId: poolId as Id<"pools">,
+    });
+    return pool ? toPoolDetail(pool) : null;
+  });
+}
+
+export async function createPool(input: {
+  name: string;
+  minSpacingMs?: number;
+  dailyCapPerNumber?: number;
+}): Promise<PoolResult<{ id: string }>> {
+  return poolCall(async () => {
+    const id = await convexClient()!.mutation(api.pool.mutations.createPool, {
+      name: input.name,
+      ...(input.minSpacingMs === undefined ? {} : { minSpacingMs: input.minSpacingMs }),
+      ...(input.dailyCapPerNumber === undefined ? {} : { dailyCapPerNumber: input.dailyCapPerNumber }),
+    });
+    return { id };
+  });
+}
+
+/** Add a number, then return the pool as it stands. */
+export async function addPoolNumber(
+  poolId: string,
+  phoneNumber: string,
+  order?: number,
+): Promise<PoolResult<PoolDetail>> {
+  return poolCall(async () => {
+    await convexClient()!.mutation(api.pool.mutations.assignNumber, {
+      poolId: poolId as Id<"pools">,
+      phoneNumber,
+      ...(order === undefined ? {} : { order }),
+    });
+    const pool = await convexClient()!.query(api.pool.queries.getPool, { poolId: poolId as Id<"pools"> });
+    return toPoolDetail(pool!);
+  });
+}
+
+export async function removePoolNumber(
+  poolId: string,
+  phoneNumber: string,
+): Promise<PoolResult<PoolDetail>> {
+  return poolCall(async () => {
+    await convexClient()!.mutation(api.pool.mutations.removeNumber, {
+      poolId: poolId as Id<"pools">,
+      phoneNumber,
+    });
+    const pool = await convexClient()!.query(api.pool.queries.getPool, { poolId: poolId as Id<"pools"> });
+    return toPoolDetail(pool!);
+  });
+}
+
+export async function reorderPoolNumbers(
+  poolId: string,
+  order: string[],
+): Promise<PoolResult<PoolDetail>> {
+  return poolCall(async () => {
+    await convexClient()!.mutation(api.pool.mutations.reorderNumbers, {
+      poolId: poolId as Id<"pools">,
+      order,
+    });
+    const pool = await convexClient()!.query(api.pool.queries.getPool, { poolId: poolId as Id<"pools"> });
+    return toPoolDetail(pool!);
+  });
+}
+
+export async function setSequencePool(
+  sequenceId: string,
+  poolId?: string,
+): Promise<PoolResult<{ sequenceId: string }>> {
+  return poolCall(async () => {
+    const id = await convexClient()!.mutation(api.sequence.mutations.setSequencePool, {
+      sequenceId: sequenceId as Id<"sequences">,
+      ...(poolId === undefined ? {} : { poolId: poolId as Id<"pools"> }),
+    });
+    return { sequenceId: id };
+  });
 }

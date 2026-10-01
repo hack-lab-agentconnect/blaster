@@ -89,6 +89,31 @@ export const setSequenceStatus = mutation({
 });
 
 /**
+ * Assign a number pool to a sequence, or clear it.
+ *
+ * This writes `sequences`, so it belongs to the sequence domain even though the
+ * thing it names lives in the pool domain. Passing no `poolId` clears the
+ * assignment and restores the fixed `fromNumber`. The pool is checked here so a
+ * sequence cannot be pointed at a pool that does not exist.
+ */
+export const setSequencePool = mutation({
+  args: {
+    sequenceId: v.id("sequences"),
+    poolId: v.optional(v.id("pools")),
+  },
+  handler: async (ctx, args) => {
+    const sequence = await ctx.db.get("sequences", args.sequenceId);
+    if (!sequence) throw new Error(`unknown sequence ${args.sequenceId}`);
+    if (args.poolId) {
+      const pool = await ctx.db.get("pools", args.poolId);
+      if (!pool) throw new Error(`unknown pool ${args.poolId}`);
+    }
+    await ctx.db.patch("sequences", args.sequenceId, { poolId: args.poolId });
+    return args.sequenceId;
+  },
+});
+
+/**
  * Enroll a prospect.
  *
  * The first step is due immediately, so enrolling does not itself schedule a

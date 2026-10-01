@@ -20,6 +20,7 @@ export * from "./twenty/graphql/index.ts";
 export * from "./telnyx/messaging/index.ts";
 export * from "./telnyx/numbers/index.ts";
 export * from "./pipeline/breakdown/index.ts";
+export * from "./pipeline/pool/index.ts";
 export * from "./pipeline/sequence/index.ts";
 export * from "./platform/env/index.ts";
 export * from "./platform/session/index.ts";

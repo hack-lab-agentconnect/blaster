@@ -27,11 +27,12 @@
     "check:naming": "node scripts/check-naming-conventions.mjs",
     "check:convex": "node scripts/check-convex-conventions.mjs",
     "check:convex:self-test": "node scripts/check-convex-conventions.mjs --self-test",
+    "check:surfaces": "node scripts/check-surfaces.mjs",
     "check:no-emoji": "node scripts/check-no-emojis.mjs",
     "check:no-font-mono": "node scripts/check-no-font-mono.mjs",
     "check:encoding": "node scripts/check-encoding.mjs",
     "check:env": "node scripts/check-env-manifest.mjs",
-    "check": "pnpm run check:secrets:self-test && pnpm run check:secrets && pnpm run check:naming && pnpm run check:convex:self-test && pnpm run check:convex && pnpm run check:env && pnpm run check:generated-client && pnpm run check:twenty-objects && pnpm run check:no-emoji && pnpm run check:no-font-mono && pnpm run check:encoding && pnpm run typecheck && pnpm run lint && pnpm run test",
+    "check": "pnpm run check:secrets:self-test && pnpm run check:secrets && pnpm run check:naming && pnpm run check:convex:self-test && pnpm run check:convex && pnpm run check:surfaces && pnpm run check:env && pnpm run check:generated-client && pnpm run check:twenty-objects && pnpm run check:no-emoji && pnpm run check:no-font-mono && pnpm run check:encoding && pnpm run typecheck && pnpm run lint && pnpm run test",
     "check:generated-client": "node scripts/check-generated-client.mjs",
     "check:twenty-objects": "node scripts/emit-twenty-objects.mjs --check"
   },

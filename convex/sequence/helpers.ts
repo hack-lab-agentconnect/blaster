@@ -137,6 +137,7 @@ export async function loadRunContext(
       status: sequence.status,
       fromNumber: sequence.fromNumber,
       numberProfileId: sequence.numberProfileId,
+      poolId: sequence.poolId,
       options: sequence.options,
     },
     steps,

@@ -16,8 +16,14 @@ export const sequenceTables = {
       v.literal("paused"),
       v.literal("completed"),
     ),
-    /** Sending number in E.164. */
+    /** Sending number in E.164. Falls back when no pool is assigned. */
     fromNumber: v.string(),
+    /**
+     * When set, the sending number is chosen from this pool per send instead of
+     * the fixed `fromNumber`, so the pool's ordering and per-number rate budget
+     * govern the send. Absent keeps the single-number behaviour.
+     */
+    poolId: v.optional(v.id("pools")),
     /** Profile bound to that number, which outranks the country rule. */
     numberProfileId: v.optional(v.string()),
     /** Twenty campaign this sequence belongs to. */

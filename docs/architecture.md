@@ -59,6 +59,7 @@ packages/core/src/
   telnyx/numbers/         Number search, purchase, and messaging-profile assignment
   pipeline/breakdown/     The breakdown builder and the notification rules
   pipeline/sequence/      Sequence drafts, eligibility, and enrollment cursors
+  pipeline/pool/          Number-pool selection and per-number rate limits
   conversation/classification/  Per-message states, Jev questions, reply gate
   guidance/prompts/       Versioned reply guidance selected by resolution path
   platform/env/           The environment manifest reader
@@ -182,9 +183,14 @@ the countries with no messaging profile configured.
 | Gate | Enforces |
 | --- | --- |
 | `check:naming` | the `{library}/{domainname}/helpers` convention |
+| `check:convex` | the Convex tree's own naming, barrels, and internal-call rules |
+| `check:surfaces` | the CLI capability registry, the MCP tools, and the HTTP routes agree |
+| `check:env` | every manifest variable is consumed by a real file |
+| `check:generated-client` | the committed Twenty GraphQL client is current |
+| `check:twenty-objects` | the Twenty object allowlist is current |
 | `check:no-emoji` | no emoji anywhere in the repository |
 | `check:no-font-mono` | forbids any fixed-width font from rendering |
-| `check:env` | every manifest variable is consumed by a real file |
+| `check:encoding` | no mojibake in tracked text |
 | `test` | the pure logic, with no credentials |
 
 `twenty:client:check` is separate from that list because it needs either

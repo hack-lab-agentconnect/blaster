@@ -113,7 +113,13 @@ blaster send --to <to> --from <from> --text <text>
 ```
 
 MCP tools: `blaster_breakdown`, `blaster_env`, `blaster_messaging_profile`,
-`blaster_send_message`, `blaster_list_records`.
+`blaster_send_message`, `blaster_list_records`, `blaster_search_numbers`,
+`blaster_purchase_number`, `blaster_list_numbers`, `blaster_sync_phones`,
+`blaster_validate_sequence`, `blaster_preview_sequence`,
+`blaster_list_conversations`, `blaster_get_messages`, `blaster_list_pools`,
+`blaster_get_pool`, `blaster_create_pool`, `blaster_add_pool_number`,
+`blaster_remove_pool_number`, `blaster_reorder_pool`,
+`blaster_set_sequence_pool`.
 
 ## What is inside
 
@@ -303,6 +309,25 @@ recorded, so an operator can either fix the cause or pause the sequence rather
 than silently losing the message.
 
 See [docs/diagrams/sequence-builder.mmd](docs/diagrams/sequence-builder.mmd).
+
+## Number pools
+
+A pool is an ordered group of sending numbers worked one at a time, each inside
+its own rate budget. Assign a pool to a sequence and the pool, not a fixed
+`fromNumber`, decides which number sends each message:
+
+```bash
+blaster pools create --name "Ireland outbound"
+blaster pools add-number --pool <id> --number +353871234567
+blaster pools add-number --pool <id> --number +353871234568
+blaster pools assign --sequence <sequence-id> --pool <id>
+```
+
+When no number may send now the runner defers to the instant the pool is next
+able to send, rather than pushing the message into the carrier's limit queue.
+The number's budget is spent only once the step is claimed. Removing a number is
+a soft removal, so an in-flight send still resolves. The tables, the selection
+rule, the status fields, and the surfaces are in [docs/pools.md](docs/pools.md).
 
 ## Documentation
 

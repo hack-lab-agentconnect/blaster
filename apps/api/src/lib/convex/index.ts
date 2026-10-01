@@ -4,13 +4,21 @@ export type {
   InboundRecordInput,
   InboundRecordResult,
   MessageRow,
+  PoolResult,
   ReadResult,
   StatusResult,
 } from "./types.ts";
 export {
+  addPoolNumber,
   applyOutboundStatus,
   conversationMessages,
   convexClient,
+  createPool,
+  getPool,
   listConversations,
+  listPools,
   recordInboundMessage,
+  removePoolNumber,
+  reorderPoolNumbers,
+  setSequencePool,
 } from "./helpers/index.ts";

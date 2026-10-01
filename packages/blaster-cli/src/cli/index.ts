@@ -57,6 +57,7 @@ import { LOGOUT_USAGE, WHOAMI_USAGE, loginMain, logoutMain, whoamiMain } from ".
 import { INBOX_USAGE, inboxList, inboxShow, type CliFlags } from "./inbox.ts";
 import { SEND_USAGE, sendMain } from "./send.ts";
 import { sequenceMain, type SequenceContext } from "./sequence.ts";
+import { POOLS_USAGE, poolsMain } from "./pools.ts";
 
 interface Parsed {
   command: string | undefined;
@@ -108,8 +109,9 @@ Read and act on the pipeline.
    login                        Sign in via the web app (PKCE browser flow)
    logout                       Remove the stored .blaster/ session
    whoami                       Show the stored session and verify it still works
-  capabilities                 Every capability and the surface that implements it
-  sequence validate|preview    Build and dry run a message sequence
+   capabilities                 Every capability and the surface that implements it
+   sequence validate|preview    Build and dry run a message sequence
+   pools list|show|create|...   Manage number pools and assign one to a sequence
 
 Options
   --json                       Machine-readable output
@@ -123,12 +125,19 @@ const CAPABILITIES = [
   { id: "env.describe", cli: "blaster env", mcp: "blaster_env", http: "GET /api/env" },
   { id: "messaging.profile", cli: "blaster profile", mcp: "blaster_messaging_profile", http: "GET /api/messaging/profile" },
   { id: "messaging.send", cli: "blaster send", mcp: "blaster_send_message", http: "POST /api/messages/send" },
-  { id: "prospects.list", cli: "blaster prospects", mcp: "blaster_list_records", http: "GET /api/records/:object" },
+  { id: "prospects.list", cli: "blaster prospects", mcp: "blaster_list_records", http: "" },
   { id: "numbers.search", cli: "blaster numbers search", mcp: "blaster_search_numbers", http: "GET /api/numbers/search" },
   { id: "numbers.purchase", cli: "blaster numbers buy", mcp: "blaster_purchase_number", http: "POST /api/numbers/purchase" },
   { id: "numbers.owned", cli: "blaster numbers owned", mcp: "blaster_list_numbers", http: "GET /api/numbers/owned" },
-  { id: "phones.list", cli: "blaster phones list", mcp: "blaster_list_phones", http: "GET /api/phones" },
+  { id: "phones.list", cli: "blaster phones list", mcp: "blaster_list_numbers", http: "GET /api/phones" },
   { id: "phones.sync", cli: "blaster phones sync", mcp: "blaster_sync_phones", http: "POST /api/phones/sync" },
+  { id: "pools.list", cli: "blaster pools list", mcp: "blaster_list_pools", http: "GET /api/pools" },
+  { id: "pools.get", cli: "blaster pools show", mcp: "blaster_get_pool", http: "GET /api/pools/:id" },
+  { id: "pools.create", cli: "blaster pools create", mcp: "blaster_create_pool", http: "POST /api/pools" },
+  { id: "pools.addNumber", cli: "blaster pools add-number", mcp: "blaster_add_pool_number", http: "POST /api/pools/:id/numbers" },
+  { id: "pools.removeNumber", cli: "blaster pools remove-number", mcp: "blaster_remove_pool_number", http: "DELETE /api/pools/:id/numbers/:phoneNumber" },
+  { id: "pools.reorder", cli: "blaster pools reorder", mcp: "blaster_reorder_pool", http: "PUT /api/pools/:id/numbers" },
+  { id: "sequences.setPool", cli: "blaster pools assign", mcp: "blaster_set_sequence_pool", http: "POST /api/sequences/:id/pool" },
   { id: "conversations.list", cli: "blaster inbox list", mcp: "blaster_list_conversations", http: "GET /api/conversations" },
   { id: "conversations.read", cli: "blaster inbox show", mcp: "blaster_get_messages", http: "GET /api/conversations/:id/messages" },
   { id: "auth.login", cli: "blaster login", mcp: "", http: "" },
@@ -298,6 +307,14 @@ async function main(): Promise<number> {
       }
       console.error(`blaster sequence: unknown action "${action}"\n${SEQUENCE_USAGE}`);
       return 1;
+    }
+
+    case "pools": {
+      if (positional[0] === "help") {
+        console.log(POOLS_USAGE);
+        return 0;
+      }
+      return await poolsMain(positional.slice(1), flags, json);
     }
 
     default: {

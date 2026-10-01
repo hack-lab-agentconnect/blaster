@@ -296,6 +296,8 @@ export interface RunContext {
     status: string;
     fromNumber: string;
     numberProfileId?: string;
+    /** When set, the sender is chosen from this pool instead of `fromNumber`. */
+    poolId?: string;
     options: {
       stopOnReply: boolean;
       respectDoNotContact: boolean;

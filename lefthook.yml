@@ -27,6 +27,13 @@ pre-push:
       glob: "{convex/**/*.ts,docs/convex-naming-conventions.md}"
       run: pnpm run check:convex
 
+    # The capability registry, the MCP tools, and the HTTP routes must agree.
+    # A capability that names a surface the build does not have fails here, so
+    # the registry cannot drift the way it had.
+    surfaces:
+      glob: "{packages/blaster-cli/src/cli/index.ts,packages/blaster-mcp/src/mcp/index.ts,apps/api/src/index.ts,docs/pools.md}"
+      run: pnpm run check:surfaces
+
     env-manifest:
       glob: "{config/env-vars.json,packages/**/*.ts,apps/**/*.ts,convex/**/*.ts}"
       run: pnpm run check:env

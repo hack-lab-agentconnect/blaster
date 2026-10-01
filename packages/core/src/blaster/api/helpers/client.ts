@@ -11,18 +11,25 @@
 import {
   BlasterApiError,
   classifyStatus,
+  type AddPoolNumberInput,
   type BatchSendResult,
   type ConversationMessageRow,
   type ConversationSummary,
+  type CreatePoolInput,
   type ListConversationsQuery,
+  type PoolDetail,
+  type PoolSummary,
   type ProspectField,
   type ProspectFilter,
   type ProspectSelection,
+  type RemovePoolNumberInput,
+  type ReorderPoolNumbersInput,
   type SendingNumber,
   type SendPreview,
   type SendRequest,
   type SentMessage,
   type SendResolution,
+  type SetSequencePoolInput,
 } from "../types.ts";
 
 export interface BlasterApiClientOptions {
@@ -66,6 +73,20 @@ export interface BlasterApiClient {
    * registration by passing the wrong id.
    */
   sendMessage(input: SendRequest): Promise<{ sent: SentMessage; resolution: SendResolution }>;
+
+  /** The pools this deployment works from. */
+  listPools(): Promise<PoolSummary[]>;
+  /** One pool with its memberships in order. */
+  getPool(poolId: string): Promise<PoolDetail | null>;
+  createPool(input: CreatePoolInput): Promise<{ id: string }>;
+  /** Add a number to a pool, or reactivate a removed one. */
+  addPoolNumber(input: AddPoolNumberInput): Promise<PoolDetail>;
+  /** Remove a number from a pool. Soft: the membership is kept as `removed`. */
+  removePoolNumber(input: RemovePoolNumberInput): Promise<PoolDetail>;
+  /** Set the order a pool works its numbers in. */
+  reorderPoolNumbers(input: ReorderPoolNumbersInput): Promise<PoolDetail>;
+  /** Assign a pool to a sequence, or clear it. */
+  setSequencePool(input: SetSequencePoolInput): Promise<{ sequenceId: string }>;
 }
 
 
@@ -128,6 +149,27 @@ export function createBlasterApiClient(options: BlasterApiClientOptions): Blaste
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const detail = (await response.json().catch(() => null)) as { error?: string } | null;
+      throw new BlasterApiError(
+        response.status,
+        classifyStatus(response.status),
+        detail?.error ?? `The Blaster API answered ${response.status}`,
+      );
+    }
+    return (await response.json()) as T;
+  };
+
+  // POST covers most writes; pools also need PUT and DELETE for reorder and
+  // removal. The error classification is identical, so it is shared here rather
+  // than reimplemented per method.
+  const send = async <T>(method: string, path: string, body?: unknown): Promise<T> => {
+    const response = await request(`${base}${path}`, {
+      method,
+      ...(body === undefined
+        ? {}
+        : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
     });
     if (!response.ok) {
       const detail = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -203,6 +245,54 @@ export function createBlasterApiClient(options: BlasterApiClientOptions): Blaste
       idempotencyKey: string;
     }) {
       return post<BatchSendResult>("/api/messages/batch-send", input);
+    },
+
+    /**
+     * Pools and their memberships.
+     *
+     * Removing a number is a soft removal: the API keeps the membership as
+     * `removed`, so an in-flight send still resolves and the history survives.
+     * A pool assigned to a sequence supplies the sending number at send time in
+     * pool order and within each number's rate budget.
+     */
+    async listPools() {
+      const body = await get<{ pools: PoolSummary[] }>("/api/pools", {});
+      return body.pools;
+    },
+
+    getPool(poolId) {
+      return get<PoolDetail | null>(`/api/pools/${encodeURIComponent(poolId)}`, {});
+    },
+
+    createPool(input) {
+      return post<{ id: string }>("/api/pools", input);
+    },
+
+    addPoolNumber(input) {
+      return post<PoolDetail>(`/api/pools/${encodeURIComponent(input.poolId)}/numbers`, {
+        phoneNumber: input.phoneNumber,
+        ...(input.order === undefined ? {} : { order: input.order }),
+      });
+    },
+
+    removePoolNumber(input) {
+      return send<PoolDetail>(
+        "DELETE",
+        `/api/pools/${encodeURIComponent(input.poolId)}/numbers/${encodeURIComponent(input.phoneNumber)}`,
+      );
+    },
+
+    reorderPoolNumbers(input) {
+      return send<PoolDetail>("PUT", `/api/pools/${encodeURIComponent(input.poolId)}/numbers`, {
+        order: input.order,
+      });
+    },
+
+    setSequencePool(input) {
+      return post<{ sequenceId: string }>(
+        `/api/sequences/${encodeURIComponent(input.sequenceId)}/pool`,
+        input.poolId === undefined ? {} : { poolId: input.poolId },
+      );
     },
   };
 }

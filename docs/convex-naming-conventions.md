@@ -305,9 +305,7 @@ checkable without understanding intent:
 - a root `http.ts`, when present, default-exports the router; a root
   `crons.ts`, when present, builds its schedule with `cronJobs()`;
 - no `export *` in any `convex/` file (R9, R12 — the duplicate-address hazard);
-- no `api.*` function references inside `convex/` (R8);
-- every domain directory has an `index.ts` that re-exports no function module
-  (R12).
+- no `api.*` function references inside `convex/` (R8).
 
 Content checks run against code with comments and string literals stripped, so
 a commented-out line or a mention in a string neither flags nor hides a real

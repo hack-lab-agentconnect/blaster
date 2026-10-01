@@ -6,6 +6,7 @@ import { v } from "convex/values";
 // one for the rest of the function.
 import { internalAction, env as convexEnv } from "../_generated/server.js";
 import { internal } from "../_generated/api.js";
+import type { Id } from "../_generated/dataModel.js";
 import {
   dryRunEnrollment,
   evaluateEligibility,
@@ -79,6 +80,43 @@ export const runEnrollmentStep = internalAction({
       return { kind: "sentinel", reason: "sequence-complete" };
     }
 
+    // Resolve the sending number before the send decision. A pool sequence takes
+    // its number from the pool, in pool order and inside each number's rate
+    // budget; a sequence with no pool keeps its fixed fromNumber. When the pool
+    // has nothing that may send now, this defers rather than claiming a step,
+    // which is what keeps the message out of the carrier's limit queue.
+    let fromNumber = sequence.fromNumber;
+    let numberProfileId: string | null = sequence.numberProfileId ?? null;
+    if (sequence.poolId) {
+      const availability = await ctx.runQuery(internal.pool.queries.availableSender, {
+        poolId: sequence.poolId as Id<"pools">,
+        now,
+      });
+      if (!availability.sender) {
+        if (availability.soonestNextAvailableAt) {
+          await ctx.runMutation(internal.sequence.mutations.applySchedule, {
+            enrollmentId: enrollment._id,
+            status: "active",
+            nextDueAt: availability.soonestNextAvailableAt,
+            lastSkipReason: "pool-rate-limited",
+            attempts: enrollment.attempts ?? 0,
+          });
+          return { kind: "sentinel", reason: "pool-rate-limited" };
+        }
+        // No active numbers at all. Parking for a human beats retrying an empty
+        // pool forever, and it is not a silent drop: the reason is recorded.
+        await ctx.runMutation(internal.sequence.mutations.applySchedule, {
+          enrollmentId: enrollment._id,
+          status: "awaiting-human",
+          lastSkipReason: "pool-empty",
+          attempts: enrollment.attempts ?? 0,
+        });
+        return { kind: "sentinel", reason: "pool-empty" };
+      }
+      fromNumber = availability.sender.phoneNumber;
+      numberProfileId = availability.sender.messagingProfileId ?? null;
+    }
+
     const env = profileEnv(loaded.profilePairs);
     const evaluate = (recipient: EligibilityInput) => {
       const verdict = evaluateEligibility(env, sequence.options, {
@@ -88,7 +126,7 @@ export const runEnrollmentStep = internalAction({
         doNotContact: recipient.doNotContact,
         hasReplied: recipient.hasReplied,
         sentInLastDay: recipient.sentInLastDay,
-        numberProfileId: sequence.numberProfileId ?? null,
+        numberProfileId,
       });
       return { eligible: verdict.eligible, reason: verdict.reason, detail: verdict.detail };
     };
@@ -97,7 +135,7 @@ export const runEnrollmentStep = internalAction({
       enrollmentId: enrollment._id,
       sequenceId: sequence._id,
       steps,
-      fromNumber: sequence.fromNumber,
+      fromNumber,
       recipient: {
         id: enrollment.recipientId,
         to: enrollment.to ?? null,
@@ -105,7 +143,7 @@ export const runEnrollmentStep = internalAction({
         doNotContact: enrollment.doNotContact === true,
         hasReplied: loaded.hasReplied,
         sentInLastDay: loaded.sentInLastDay,
-        numberProfileId: sequence.numberProfileId ?? null,
+        numberProfileId,
       },
       now,
       evaluate,
@@ -174,6 +212,30 @@ export const runEnrollmentStep = internalAction({
       return { kind: "sentinel", reason: "replied-before-send" };
     }
 
+    // Reserve the sender now that the claim is ours and the enrollment is still
+    // active. This is the moment the number's rate budget is spent, in the same
+    // step as the send, so a deferred or lost step never costs a number an
+    // allowance. Losing the reservation here is rare (another runner took the
+    // last slot); the answer is still to defer, never to send unpaced.
+    if (sequence.poolId) {
+      const reserved = await ctx.runMutation(internal.pool.mutations.consumeSender, {
+        poolId: sequence.poolId as Id<"pools">,
+        now,
+      });
+      if (!reserved.sender) {
+        await ctx.runMutation(internal.sequence.mutations.applySchedule, {
+          enrollmentId: enrollment._id,
+          status: "active",
+          nextDueAt: reserved.soonestNextAvailableAt ?? now + 60_000,
+          lastSkipReason: "pool-rate-limited",
+          attempts: enrollment.attempts ?? 0,
+        });
+        return { kind: "sentinel", reason: "pool-rate-limited" };
+      }
+      fromNumber = reserved.sender.phoneNumber;
+      numberProfileId = reserved.sender.messagingProfileId ?? null;
+    }
+
     // Typed, so a typo in the variable name is a build error. The guard stays
     // even though `convexEnv.TELNYX_API_KEY` is declared required: parking the
     // enrollment with a readable reason beats throwing an opaque error out of
@@ -208,12 +270,12 @@ export const runEnrollmentStep = internalAction({
     const profile = resolveMessagingProfile(env, {
       to,
       recipientCountry: enrollment.country ?? null,
-      numberProfileId: sequence.numberProfileId ?? null,
+      numberProfileId,
     });
     try {
       const sent = await sendMessage({
         apiKey,
-        from: sequence.fromNumber,
+        from: fromNumber,
         to,
         text: step.text,
         messagingProfileId: profile.profileId ?? "",
@@ -235,7 +297,7 @@ export const runEnrollmentStep = internalAction({
         steps,
         message: {
           to,
-          from: sequence.fromNumber,
+          from: fromNumber,
           text: step.text,
           telnyxMessageId: outcome.messageId,
           sentAt: now,

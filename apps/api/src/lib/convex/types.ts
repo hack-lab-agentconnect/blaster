@@ -11,6 +11,7 @@ export type {
   InboundRecordInput,
   InboundRecordResult,
   MessageRow,
+  PoolResult,
   ReadResult,
   StatusResult,
 } from "./helpers/client.ts";

@@ -11,7 +11,12 @@ naming gates:
 | [identity.md](identity.md) | Signing in with Twenty, the auth-guard wall, and which credential opens which path |
 | [deployment.md](deployment.md) | How pushes become production: the build, the tracked function shim, failure modes, and rollback |
 | [send.md](send.md) | The prospect batch send: the intent, the four routes, the filter menu, and the per-recipient response shape |
+| [sequencer.md](sequencer.md) | The multi-step SMS sequencer: what works, the exact gaps, and the design decisions |
+| [pools.md](pools.md) | Number pools: the relation, the rate limits, the status fields, and the surfaces that manage them |
+| [call-history.md](call-history.md) | How call recordings and transcripts reach the workspace |
+| [member-attribution.md](member-attribution.md) | How a write is attributed to the signed-in member |
 | [naming-conventions.md](naming-conventions.md) | The required `{library}/{domainname}/helpers` directory structure |
+| [convex-naming-conventions.md](convex-naming-conventions.md) | The Convex tree's own naming and directory rules |
 
 **Vendored** documentation is third-party reference material, pulled in for the
 libraries this repository actually depends on. It is gitignored, so it is never

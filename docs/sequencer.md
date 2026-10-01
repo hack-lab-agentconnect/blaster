@@ -18,7 +18,7 @@ are going out, and discovers otherwise from a prospect.
 | Dry run of the real statechart | `pipeline/sequence/helpers/dry-run.ts` | done, tested |
 | Draft storage, and the CLI that edits it | `blaster sequence` | done, 17 tests |
 | Persistence | `convex/sequence/` | tables and functions exist |
-| **The runner** | — | **does not exist** |
+| **The runner** | `convex/sequence/actions.ts` | exists; selects its sender from a pool when one is assigned |
 
 ## The exact crack
 
@@ -112,6 +112,22 @@ finds the key already claimed also does not know whether that send went out. The
 only way out is `RECONCILE`, which is a decision about a fact the machine cannot
 observe. Omitting that handler is the feature, and there is a test that ticks an
 ambiguous enrollment and asserts nothing moves.
+
+## Sending through a number pool
+
+A sequence may send from a fixed `fromNumber`, or from a pool of numbers
+(assigned with `blaster pools assign --sequence <id> --pool <id>`; see
+[pools.md](pools.md)). A pool sequence takes its number from the pool per send,
+in pool order and inside each number's rate budget.
+
+The runner honours the budget rather than the carrier's limit queue: before
+claiming a step it reads the pool, and when no number may send now it defers the
+enrollment to the instant the pool is next able to send
+(`lastSkipReason: "pool-rate-limited"`). A pool with no active numbers parks the
+enrollment `awaiting-human` (`lastSkipReason: "pool-empty"`) instead of retrying
+forever. The number's budget is spent by an internal `consumeSender` mutation
+only once the step is claimed, so a deferred or lost step never costs a number an
+allowance. A sequence with no pool is unchanged and uses its fixed `fromNumber`.
 
 ## Quiet hours
 

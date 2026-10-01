@@ -58,6 +58,15 @@ import {
 import { TelnyxError, listMessagingProfiles, sendMessage } from "./lib/telnyx/messaging/index.ts";
 import { readBreakdownFrom, twentyReader } from "./lib/pipeline/breakdown/index.ts";
 import { applyOutboundStatus, conversationMessages, listConversations, recordInboundMessage } from "./lib/convex/index.ts";
+import {
+  addPoolNumber,
+  createPool,
+  getPool,
+  listPools,
+  removePoolNumber,
+  reorderPoolNumbers,
+  setSequencePool,
+} from "./lib/convex/index.ts";
 import { requireOperator, resolveOperatorActor } from "./lib/auth/operator/index.ts";
 import { broadcastReply, classifyMessageRules } from "@blaster/core";
 import {
@@ -533,6 +542,112 @@ inbox.post("/messages/batch-send", requireOperator, async (c) => {
 });
 
 app.route("/api", inbox);
+
+/**
+ * Number pools.
+ *
+ * Operator-gated like the inbox, because a pool names provisioned sending
+ * numbers and their rate state. The CLI and MCP reach these through the shared
+ * `createBlasterApiClient`, so all three surfaces act on the same pool state.
+ * Removing a number is a soft removal handled in Convex; this layer only
+ * validates the request and maps the Convex result onto a status code.
+ */
+const pools = new Hono();
+
+pools.get("/pools", requireOperator, async (c) => {
+  const result = await listPools();
+  if (result.status === "not-configured") return c.json({ error: "CONVEX_URL is not configured" }, 503);
+  if (result.status === "failed") return c.json({ error: "Failed to list pools", detail: result.error }, 502);
+  return c.json({ count: result.value.length, pools: result.value });
+});
+
+pools.post("/pools", requireOperator, async (c) => {
+  const body = (await c.req.json().catch(() => null)) as {
+    name?: unknown;
+    minSpacingMs?: unknown;
+    dailyCapPerNumber?: unknown;
+  } | null;
+  if (!body || typeof body.name !== "string" || body.name.trim() === "") {
+    return c.json({ error: "name is required" }, 400);
+  }
+  const result = await createPool({
+    name: body.name,
+    ...(typeof body.minSpacingMs === "number" ? { minSpacingMs: body.minSpacingMs } : {}),
+    ...(typeof body.dailyCapPerNumber === "number" ? { dailyCapPerNumber: body.dailyCapPerNumber } : {}),
+  });
+  if (result.status === "not-configured") return c.json({ error: "CONVEX_URL is not configured" }, 503);
+  if (result.status === "failed") return c.json({ error: "Failed to create the pool", detail: result.error }, 502);
+  return c.json(result.value, 201);
+});
+
+pools.get("/pools/:id", requireOperator, async (c) => {
+  const result = await getPool(c.req.param("id"));
+  if (result.status === "not-configured") return c.json({ error: "CONVEX_URL is not configured" }, 503);
+  if (result.status === "failed") return c.json({ error: "Failed to read the pool", detail: result.error }, 502);
+  if (!result.value) return c.json({ error: "Unknown pool" }, 404);
+  return c.json(result.value);
+});
+
+pools.post("/pools/:id/numbers", requireOperator, async (c) => {
+  const body = (await c.req.json().catch(() => null)) as {
+    phoneNumber?: unknown;
+    order?: unknown;
+  } | null;
+  if (!body || typeof body.phoneNumber !== "string" || body.phoneNumber.trim() === "") {
+    return c.json({ error: "phoneNumber is required" }, 400);
+  }
+  const result = await addPoolNumber(
+    c.req.param("id"),
+    body.phoneNumber,
+    typeof body.order === "number" ? body.order : undefined,
+  );
+  if (result.status === "not-configured") return c.json({ error: "CONVEX_URL is not configured" }, 503);
+  if (result.status === "failed") return c.json({ error: "Failed to add the number", detail: result.error }, 502);
+  return c.json(result.value);
+});
+
+pools.delete("/pools/:id/numbers/:phoneNumber", requireOperator, async (c) => {
+  const result = await removePoolNumber(c.req.param("id"), c.req.param("phoneNumber"));
+  if (result.status === "not-configured") return c.json({ error: "CONVEX_URL is not configured" }, 503);
+  if (result.status === "failed") {
+    const clientMistake = /not in pool|unknown/i.test(result.error);
+    return c.json(
+      { error: clientMistake ? "That number is not in the pool" : "Failed to remove the number", detail: result.error },
+      clientMistake ? 404 : 502,
+    );
+  }
+  return c.json(result.value);
+});
+
+pools.put("/pools/:id/numbers", requireOperator, async (c) => {
+  const body = (await c.req.json().catch(() => null)) as { order?: unknown } | null;
+  if (!body || !Array.isArray(body.order) || body.order.some((item) => typeof item !== "string")) {
+    return c.json({ error: "order must be an array of E.164 numbers" }, 400);
+  }
+  const result = await reorderPoolNumbers(c.req.param("id"), body.order as string[]);
+  if (result.status === "not-configured") return c.json({ error: "CONVEX_URL is not configured" }, 503);
+  if (result.status === "failed") return c.json({ error: "Failed to reorder the pool", detail: result.error }, 502);
+  return c.json(result.value);
+});
+
+/**
+ * Assign a pool to a sequence, or clear it.
+ *
+ * An absent `poolId` clears the assignment and restores the sequence's fixed
+ * `fromNumber`; that is the one way to undo a pool assignment.
+ */
+pools.post("/sequences/:id/pool", requireOperator, async (c) => {
+  const body = (await c.req.json().catch(() => null)) as { poolId?: unknown } | null;
+  const result = await setSequencePool(
+    c.req.param("id"),
+    typeof body?.poolId === "string" && body.poolId !== "" ? body.poolId : undefined,
+  );
+  if (result.status === "not-configured") return c.json({ error: "CONVEX_URL is not configured" }, 503);
+  if (result.status === "failed") return c.json({ error: "Failed to assign the pool", detail: result.error }, 502);
+  return c.json(result.value);
+});
+
+app.route("/api", pools);
 
 /** The environment manifest, with each variable's configured state. */
 app.get("/api/env", (c) => {

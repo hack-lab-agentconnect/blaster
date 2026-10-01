@@ -193,6 +193,71 @@ export interface BatchSendResult {
   outcomes: RecipientOutcome[];
 }
 
+/** One pool of sending numbers, as `/api/pools` returns it. */
+export interface PoolSummary {
+  id: string;
+  name: string;
+  status: "active" | "paused";
+  strategy: string;
+  /** The `order` of the member most recently used. */
+  cursor: number;
+  minSpacingMs: number;
+  dailyCapPerNumber: number;
+  /** How many members can currently send. */
+  activeNumberCount: number;
+  /** Earliest instant the pool could next send. */
+  nextAvailableAt: number;
+  lastDispatchedAt: number | null;
+  createdAt: number;
+}
+
+/** One number's membership in a pool, with its live rate state. */
+export interface PoolNumberRow {
+  phoneNumberId: string;
+  phoneNumber: string;
+  order: number;
+  status: "active" | "paused" | "removed";
+  sentToday: number;
+  nextAvailableAt: number;
+  lastSentAt: number | null;
+  assignedAt: number;
+  removedAt: number | null;
+}
+
+/** A pool with its memberships, as `/api/pools/:id` returns it. */
+export interface PoolDetail extends PoolSummary {
+  numbers: PoolNumberRow[];
+}
+
+export interface CreatePoolInput {
+  name: string;
+  minSpacingMs?: number;
+  dailyCapPerNumber?: number;
+}
+
+export interface AddPoolNumberInput {
+  poolId: string;
+  phoneNumber: string;
+  order?: number;
+}
+
+export interface RemovePoolNumberInput {
+  poolId: string;
+  phoneNumber: string;
+}
+
+export interface ReorderPoolNumbersInput {
+  poolId: string;
+  /** E.164 numbers, in the order the pool should work them. */
+  order: string[];
+}
+
+export interface SetSequencePoolInput {
+  sequenceId: string;
+  /** Omit to clear the assignment and fall back to the fixed `fromNumber`. */
+  poolId?: string;
+}
+
 /**
  * A failure the caller can act on. `unauthorized` is separated from the rest
  * because it has exactly one remedy: sign in again.
