@@ -112,6 +112,7 @@ Read and act on the pipeline.
    capabilities                 Every capability and the surface that implements it
    sequence validate|preview    Build and dry run a message sequence
    pools list|show|create|...   Manage number pools and assign one to a sequence
+   pool                          Interactive: build a pool, pick numbers, assign it
 
 Options
   --json                       Machine-readable output
@@ -132,6 +133,7 @@ const CAPABILITIES = [
   { id: "phones.list", cli: "blaster phones list", mcp: "blaster_list_numbers", http: "GET /api/phones" },
   { id: "phones.sync", cli: "blaster phones sync", mcp: "blaster_sync_phones", http: "POST /api/phones/sync" },
   { id: "pools.list", cli: "blaster pools list", mcp: "blaster_list_pools", http: "GET /api/pools" },
+  { id: "pools.new", cli: "blaster pool", mcp: "", http: "" },
   { id: "pools.get", cli: "blaster pools show", mcp: "blaster_get_pool", http: "GET /api/pools/:id" },
   { id: "pools.create", cli: "blaster pools create", mcp: "blaster_create_pool", http: "POST /api/pools" },
   { id: "pools.addNumber", cli: "blaster pools add-number", mcp: "blaster_add_pool_number", http: "POST /api/pools/:id/numbers" },
@@ -309,6 +311,7 @@ async function main(): Promise<number> {
       return 1;
     }
 
+    case "pool":
     case "pools": {
       if (positional[0] === "help") {
         console.log(POOLS_USAGE);

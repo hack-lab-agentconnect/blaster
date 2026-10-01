@@ -1,5 +1,7 @@
 import { v } from "convex/values";
 import { env } from "../_generated/server.js";
+import type { MutationCtx } from "../_generated/server.js";
+import type { Id } from "../_generated/dataModel.js";
 
 /**
  * Phone-number storage helpers.
@@ -52,4 +54,35 @@ export type PhoneInput = {
 
 export function telnyxKey(): string {
   return env.TELNYX_API_KEY;
+}
+
+/** The ledger row for an E.164 number, or null when it was never recorded. */
+export async function findPhoneNumber(
+  ctx: MutationCtx,
+  phoneNumber: string,
+): Promise<Id<"phoneNumbers"> | null> {
+  const existing = await ctx.db
+    .query("phoneNumbers")
+    .withIndex("phoneNumber", (q) => q.eq("phoneNumber", phoneNumber))
+    .unique();
+  return existing?._id ?? null;
+}
+
+/**
+ * The ledger row for an E.164 number, created on first reference.
+ *
+ * A number can reach Convex through a pool assignment before the richer Telnyx
+ * metadata has been synced from Twenty. The row is keyed on the E.164 number and
+ * every other field is optional, so creating it here loses nothing: a later
+ * `storePhoneNumber` patches the same row with the full record. Keeping this in
+ * the phone domain is what lets the pool domain reference a number without
+ * writing the phone table itself.
+ */
+export async function ensurePhoneNumber(
+  ctx: MutationCtx,
+  phoneNumber: string,
+): Promise<Id<"phoneNumbers">> {
+  const existing = await findPhoneNumber(ctx, phoneNumber);
+  if (existing) return existing;
+  return ctx.db.insert("phoneNumbers", { phoneNumber });
 }

@@ -63,6 +63,7 @@ import {
   createPool,
   getPool,
   listPools,
+  listSequences,
   removePoolNumber,
   reorderPoolNumbers,
   setSequencePool,
@@ -628,6 +629,20 @@ pools.put("/pools/:id/numbers", requireOperator, async (c) => {
   if (result.status === "not-configured") return c.json({ error: "CONVEX_URL is not configured" }, 503);
   if (result.status === "failed") return c.json({ error: "Failed to reorder the pool", detail: result.error }, 502);
   return c.json(result.value);
+});
+
+/**
+ * Sequences, for the pool wizard's "assign to a sequence" step.
+ *
+ * Read-only and operator-gated like the rest of this sub-app. The runner and the
+ * sequence builder read sequences directly from Convex; this route exists only
+ * so the CLI and MCP can list them through the shared client.
+ */
+pools.get("/sequences", requireOperator, async (c) => {
+  const result = await listSequences();
+  if (result.status === "not-configured") return c.json({ error: "CONVEX_URL is not configured" }, 503);
+  if (result.status === "failed") return c.json({ error: "Failed to list sequences", detail: result.error }, 502);
+  return c.json({ count: result.value.length, sequences: result.value });
 });
 
 /**

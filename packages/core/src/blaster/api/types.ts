@@ -258,6 +258,15 @@ export interface SetSequencePoolInput {
   poolId?: string;
 }
 
+/** A sequence, as `/api/sequences` returns it, for a pool-assignment picker. */
+export interface SequenceOption {
+  id: string;
+  name: string;
+  status: string;
+  /** The pool already assigned, when there is one. */
+  poolId: string | null;
+}
+
 /**
  * A failure the caller can act on. `unauthorized` is separated from the rest
  * because it has exactly one remedy: sign in again.

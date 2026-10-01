@@ -13,12 +13,28 @@ import {
   type BlasterApiClient,
   type PoolDetail,
   type PoolSummary,
+  type SendingNumber,
+  type SequenceOption,
 } from "@blaster/core";
 import { loadHome, type SessionRecord } from "./login.ts";
 import type { CliFlags } from "./inbox.ts";
+import {
+  abort,
+  askConfirm,
+  askMultiSelect,
+  askSelect,
+  askText,
+  begin,
+  fail,
+  finish,
+  isInteractive,
+  note,
+} from "./prompt.ts";
 
-export const POOLS_USAGE = `Usage: blaster pools <action>
+export const POOLS_USAGE = `Usage: blaster pool [action]
 
+  (no action)                   Interactive: name a pool, pick its numbers, and
+                                optionally assign it to a sequence
   list                          Every pool, newest first
   show <pool-id>                One pool with its numbers in order
   create --name <name> [--min-spacing <ms>] [--daily-cap <n>]
@@ -32,15 +48,17 @@ export const POOLS_USAGE = `Usage: blaster pools <action>
   assign --sequence <id> [--pool <id>]
                                 Assign a pool to a sequence; omit --pool to clear
 
-A pool assigned to a sequence supplies the sending number at send time, in pool
-order and within each number's rate budget, so work is deferred instead of being
-pushed into the carrier's limit queue.
+Run "blaster pool" in a terminal to build a pool interactively; the flags above
+are the scriptable path. A pool assigned to a sequence supplies the sending
+number at send time, in pool order and within each number's rate budget, so work
+is deferred instead of being pushed into the carrier's limit queue.
 
 Options
   --api-url <url>               The API to read, defaulting to the signed-in one
   --json                        Machine-readable output
 
-Reads the operator session written by "blaster login". Nothing here prompts.`;
+Reads the operator session written by "blaster login". The interactive wizard
+requires that session; without it, run "blaster login" first.`;
 
 function clientFromSession(flags: CliFlags, root: string): BlasterApiClient | number {
   const home = loadHome(root);
@@ -105,6 +123,104 @@ function formatPool(pool: PoolDetail): string {
   return lines.join("\n");
 }
 
+/**
+ * The interactive build: name a pool, pick numbers, optionally assign it.
+ *
+ * Only reached from a TTY with a signed-in session. Every step is a Clack
+ * prompt, and each prompt can be seeded by a flag so the same code path is
+ * scriptable: `--name`, `--min-spacing`, `--daily-cap`. A cancel at any prompt
+ * stops the command and names what was left unchanged rather than creating half
+ * a pool.
+ */
+async function poolsWizard(
+  client: BlasterApiClient,
+  flags: CliFlags,
+  json: boolean,
+): Promise<number> {
+  begin("New number pool");
+
+  const nameFlag = text(flags.get("name"));
+  const name = nameFlag ?? (await askText("Pool name", { placeholder: "Ireland outbound" }));
+  if (!name) return abort("no pool was created,");
+
+  let numbers: SendingNumber[];
+  try {
+    numbers = await client.listSendingNumbers();
+  } catch (error) {
+    return report(error, json);
+  }
+  if (numbers.length === 0) {
+    fail("No sendable numbers were found for this workspace.");
+    note(
+      "Sending numbers",
+      "No number can send until its Twenty agencyPhones record has a messaging profile.",
+    );
+    return 1;
+  }
+
+  const chosen = await askMultiSelect(
+    "Numbers to add to the pool",
+    numbers.map((number) => ({
+      value: number.phoneNumber,
+      label: number.label,
+      ...(number.countryCode ? { hint: number.countryCode } : {}),
+    })),
+  );
+  if (chosen === null) return abort("no pool was created,");
+  if (chosen.length === 0) {
+    fail("Choose at least one number for the pool.");
+    return 1;
+  }
+
+  const spacing = text(flags.get("min-spacing"));
+  const dailyCap = text(flags.get("daily-cap"));
+
+  const created = await client.createPool({
+    name,
+    ...(spacing === undefined ? {} : { minSpacingMs: Number(spacing) }),
+    ...(dailyCap === undefined ? {} : { dailyCapPerNumber: Number(dailyCap) }),
+  });
+
+  // Added in the order they were chosen, so the pool's dispatch order matches
+  // the selection. Each add returns the pool as it now stands.
+  let pool: PoolDetail | null = null;
+  for (const phoneNumber of chosen) {
+    pool = await client.addPoolNumber({ poolId: created.id, phoneNumber });
+  }
+  note("Pool created", pool ? formatPool(pool) : `Pool ${created.id} with ${chosen.length} number(s).`);
+
+  const assign = await askConfirm("Assign this pool to a sequence now?", false);
+  if (assign === null) return abort("the pool was created, but nothing was assigned,");
+  if (assign) {
+    let sequences: SequenceOption[];
+    try {
+      sequences = await client.listSequences();
+    } catch (error) {
+      return report(error, json);
+    }
+    if (sequences.length === 0) {
+      fail("No sequences are stored yet, so there is nothing to assign to.");
+      note("Next step", 'Create one with "blaster sequence new", then run "blaster pool" again.');
+    } else {
+      const pick = await askSelect("Assign to which sequence?", [
+        ...sequences.map((sequence) => ({
+          value: sequence.id,
+          label: sequence.name,
+          hint: `${sequence.status}${sequence.poolId ? ` pool=${sequence.poolId}` : ""}`,
+        })),
+        { value: "__none__", label: "Do not assign" },
+      ]);
+      if (pick === null) return abort("the pool was created, but nothing was assigned,");
+      if (pick !== "__none__") {
+        await client.setSequencePool({ sequenceId: pick, poolId: created.id });
+      }
+    }
+  }
+
+  finish(`Pool "${name}" created with ${chosen.length} number(s).`);
+  return 0;
+}
+
 export async function poolsMain(
   rest: string[],
   flags: CliFlags,
@@ -112,6 +228,27 @@ export async function poolsMain(
   root: string = process.cwd(),
 ): Promise<number> {
   const action = rest[0];
+
+  // Usage needs no session; the wizard does, so `clientFromSession` is the
+  // login gate and its message names `blaster login`.
+  if (action === "help") {
+    console.log(POOLS_USAGE);
+    return 0;
+  }
+  if (action === undefined) {
+    if (!isInteractive(json)) {
+      console.log(POOLS_USAGE);
+      return 0;
+    }
+    const client = clientFromSession(flags, root);
+    if (typeof client === "number") return client;
+    try {
+      return await poolsWizard(client, flags, json);
+    } catch (error) {
+      return report(error, json);
+    }
+  }
+
   const client = clientFromSession(flags, root);
   if (typeof client === "number") return client;
 

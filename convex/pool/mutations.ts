@@ -18,6 +18,7 @@ import {
   DEFAULT_MIN_SPACING_MS,
   nonNegative,
 } from "./utils.js";
+import { ensurePhoneNumber, findPhoneNumber } from "../phoneNumbers/model.js";
 
 /**
  * Pool writes.
@@ -59,30 +60,24 @@ export const setPoolStatus = mutation({
  * Add a number to a pool, or move an existing membership.
  *
  * The number is addressed in E.164 because that is the key the phone ledger and
- * Twenty share; the membership stores the resolved `phoneNumberId` as well, so
- * a pool never depends on the E.164 string continuing to resolve.
+ * Twenty share. A number that reached the workspace before the ledger row was
+ * synced gets a minimal row here, so pooling "our current numbers" works without
+ * a separate import step; the ledger fills in on the next sync.
  */
 export const assignNumber = mutation({
   args: assignNumberArgsValidator,
   handler: async (ctx, args) => {
-    const number = await ctx.db
-      .query("phoneNumbers")
-      .withIndex("phoneNumber", (q) => q.eq("phoneNumber", args.phoneNumber))
-      .unique();
-    if (!number) throw new Error(`unknown phone number ${args.phoneNumber}`);
-    return assignNumberModel(ctx, args.poolId, number._id, number.phoneNumber, args.order, Date.now());
+    const phoneNumberId = await ensurePhoneNumber(ctx, args.phoneNumber);
+    return assignNumberModel(ctx, args.poolId, phoneNumberId, args.phoneNumber, args.order, Date.now());
   },
 });
 
 export const removeNumber = mutation({
   args: removeNumberArgsValidator,
   handler: async (ctx, args) => {
-    const number = await ctx.db
-      .query("phoneNumbers")
-      .withIndex("phoneNumber", (q) => q.eq("phoneNumber", args.phoneNumber))
-      .unique();
-    if (!number) throw new Error(`unknown phone number ${args.phoneNumber}`);
-    return removeNumberModel(ctx, args.poolId, number._id, Date.now());
+    const phoneNumberId = await findPhoneNumber(ctx, args.phoneNumber);
+    if (!phoneNumberId) throw new Error(`unknown phone number ${args.phoneNumber}`);
+    return removeNumberModel(ctx, args.poolId, phoneNumberId, Date.now());
   },
 });
 

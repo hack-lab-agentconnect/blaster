@@ -59,6 +59,32 @@ export async function askConfirm(message: string, initial = false): Promise<bool
   return value;
 }
 
+/**
+ * Choose several values at once.
+ *
+ * Used by the pool wizard to pick the numbers to add in one pass. `required`
+ * defaults to true so an empty selection is re-prompted rather than silently
+ * creating an empty pool; pass false when "none" is a valid answer.
+ */
+export async function askMultiSelect(
+  message: string,
+  options: Array<{ value: string; label: string; hint?: string }>,
+  opts: { initialValues?: string[]; required?: boolean } = {},
+): Promise<string[] | null> {
+  const value = await clack.multiselect({
+    message,
+    options: options.map((option) => ({
+      value: option.value,
+      label: option.label,
+      hint: option.hint,
+    })),
+    initialValues: opts.initialValues,
+    required: opts.required ?? true,
+  });
+  if (clack.isCancel(value)) return null;
+  return value as string[];
+}
+
 export function begin(title: string): void {
   clack.intro(title);
 }

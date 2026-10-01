@@ -88,6 +88,7 @@ route does not exist.
 
 | Capability | CLI | MCP | HTTP |
 | --- | --- | --- | --- |
+| `pools.new` | `blaster pool` | - | - |
 | `pools.list` | `blaster pools list` | `blaster_list_pools` | `GET /api/pools` |
 | `pools.get` | `blaster pools show <id>` | `blaster_get_pool` | `GET /api/pools/:id` |
 | `pools.create` | `blaster pools create --name <name>` | `blaster_create_pool` | `POST /api/pools` |
@@ -99,6 +100,28 @@ route does not exist.
 The HTTP routes are operator-gated (they name provisioned numbers and rate
 state), and the CLI and MCP reach them through the shared
 `createBlasterApiClient`, so the three cannot disagree about a payload.
+
+## Building a pool interactively
+
+Run `blaster pool` in a terminal (the alias `blaster pools` behaves the same
+with no action). It is behind the same login gate as the other operator
+commands: without a session it says to run `blaster login` rather than
+prompting. The wizard, over `@clack/prompts`:
+
+1. **Name the pool** (`--name` skips the prompt).
+2. **Pick the numbers** from the workspace's sendable numbers in one
+   multi-select. A number with no messaging profile is not offered.
+3. **Optionally assign the pool to a sequence**, chosen from the stored
+   sequences, or answer "Do not assign".
+
+```text
+blaster pool
+```
+
+A cancel at any prompt stops the command and names what was left unchanged; it
+never creates half a pool. The flags on `blaster pools create` /
+`add-number` / `assign` are the non-interactive path for scripts and CI, and are
+what the MCP tools call.
 
 ## How a number is removed from a pool
 

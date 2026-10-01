@@ -17,6 +17,7 @@ export {
   getPool,
   listConversations,
   listPools,
+  listSequences,
   recordInboundMessage,
   removePoolNumber,
   reorderPoolNumbers,

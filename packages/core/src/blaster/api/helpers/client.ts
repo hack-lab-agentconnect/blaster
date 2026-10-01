@@ -29,6 +29,7 @@ import {
   type SendRequest,
   type SentMessage,
   type SendResolution,
+  type SequenceOption,
   type SetSequencePoolInput,
 } from "../types.ts";
 
@@ -87,6 +88,8 @@ export interface BlasterApiClient {
   reorderPoolNumbers(input: ReorderPoolNumbersInput): Promise<PoolDetail>;
   /** Assign a pool to a sequence, or clear it. */
   setSequencePool(input: SetSequencePoolInput): Promise<{ sequenceId: string }>;
+  /** Sequences, for a pool-assignment picker. */
+  listSequences(): Promise<SequenceOption[]>;
 }
 
 
@@ -293,6 +296,11 @@ export function createBlasterApiClient(options: BlasterApiClientOptions): Blaste
         `/api/sequences/${encodeURIComponent(input.sequenceId)}/pool`,
         input.poolId === undefined ? {} : { poolId: input.poolId },
       );
+    },
+
+    async listSequences() {
+      const body = await get<{ sequences: SequenceOption[] }>("/api/sequences", {});
+      return body.sequences;
     },
   };
 }

@@ -1,7 +1,7 @@
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../../../../../convex/_generated/api.js";
 import type { Id } from "../../../../../../convex/_generated/dataModel.js";
-import type { ConversationMessageRow, ConversationSummary, PoolDetail, PoolNumberRow, PoolSummary } from "@blaster/core";
+import type { ConversationMessageRow, ConversationSummary, PoolDetail, PoolNumberRow, PoolSummary, SequenceOption } from "@blaster/core";
 
 /**
  * The API's Convex client.
@@ -332,5 +332,18 @@ export async function setSequencePool(
       ...(poolId === undefined ? {} : { poolId: poolId as Id<"pools"> }),
     });
     return { sequenceId: id };
+  });
+}
+
+/** Sequences, newest first, for a pool-assignment picker. */
+export async function listSequences(): Promise<PoolResult<SequenceOption[]>> {
+  return poolCall(async () => {
+    const rows = await convexClient()!.query(api.sequence.queries.listSequences, {});
+    return rows.map((row) => ({
+      id: row._id,
+      name: row.name,
+      status: row.status,
+      poolId: row.poolId ?? null,
+    }));
   });
 }
