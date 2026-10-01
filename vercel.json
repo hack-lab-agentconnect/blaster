@@ -2,7 +2,6 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "pnpm --filter @blaster/web build && node scripts/build-api-function.mjs",
   "outputDirectory": "apps/web/dist",
-  "git": { "deploymentEnabled": false },
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/handler" },
     { "source": "/health", "destination": "/api/handler" },
