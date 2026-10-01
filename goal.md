@@ -1,7 +1,7 @@
 # Goal
 
 <!-- goal
-updated: 2026-10-01T16:37:28Z
+updated: 2026-10-01T18:11:17Z
 commit: goal: scope the pool objective and gate pushes on a fresh outline
 -->
 
@@ -51,6 +51,17 @@ the per-number or account ceiling.
 - docs/convex-naming-conventions.md
 - docs/pools.md
 - docs/sequencer.md
+- docs/agents/domain.md
+- docs/agents/issue-tracker.md
+- docs/agents/triage-labels.md
+- .scratch/reliable-pooled-outbound/map.md
+- .scratch/reliable-pooled-outbound/issues/01-suppression-model.md
+- .scratch/reliable-pooled-outbound/issues/02-thread-identity.md
+- .scratch/reliable-pooled-outbound/issues/03-limiter-pool-relationship.md
+- .scratch/reliable-pooled-outbound/issues/04-convex-test-harness.md
+- .scratch/reliable-pooled-outbound/issues/05-open-the-pr.md
+- AGENTS.md
+- CLAUDE.md
 - lefthook.yml
 - package.json
 - packages/blaster-cli/src/cli/index.ts
@@ -80,7 +91,10 @@ the per-number or account ceiling.
 - [x] `campaignFor` attributes pool-backed threads; TOCTOU closed by reserving the proposed order
 - [x] Inbound ownership reads the Convex ledger; the reply re-check is peer-wide
 - [x] `docs/pools.md` describes the relation, rates, surfaces, and the inbound path
-- [ ] Durable per-peer suppression: write an opt-out to a `suppressions` table keyed on E.164, checked at enroll and at send (currently opt-out is per-enrollment only)
-- [ ] Decide how a contact reached from several pool numbers appears in the inbox (one thread per number today)
-- [ ] Add a `convex-test` harness so `campaignFor`, `consumeSender`, and `stopEnrollmentsForPeer` have real integration tests
-- [ ] Open the PR and get the pool branch merged to `main`
+- [x] Wayfinder map charted at `.scratch/reliable-pooled-outbound/` (destination, fog, decisions, tickets)
+- [x] Suppression model decided (ticket 01): a durable per-person `suppressions` row keyed on the E.164 peer, written by inbound STOP only, checked at enroll and send, lifted by an explicit human resolve
+- [ ] Durable per-peer suppression: implement the decided `suppressions` model in Convex
+- [ ] Decide how a contact reached from several pool numbers appears in the inbox (ticket 02, thread identity under rotation)
+- [ ] Decide the limiter/pool budget contract (ticket 03)
+- [ ] Add a `convex-test` harness so `campaignFor`, `consumeSender`, and `stopEnrollmentsForPeer` have real integration tests (ticket 04, blocked by 01 and 02)
+- [ ] Open the PR and get the pool branch merged to `main` (ticket 05)
