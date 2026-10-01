@@ -94,7 +94,14 @@ function fail(
   if (error instanceof TelnyxError) {
     return c.json({ error: fallback, detail: error.message }, status >= 500 ? 502 : status);
   }
-  if (error instanceof Error && error.name === "TwentyError") {
+  // Both Twenty transports carry a `status`, but they are different classes:
+  // `TwentyError` from the REST client, `TwentyOAuthError` from the OAuth
+  // provider. Matching only the first meant every OAuth failure fell through to
+  // the bare 500 below, so a 401 from the auth-guard and a 400 from a rejected
+  // authorization code were indistinguishable and both said nothing at all.
+  // A failure whose cause cannot be seen is one nobody can diagnose, so the
+  // detail is carried through for both.
+  if (error instanceof Error && (error.name === "TwentyError" || error.name === "TwentyOAuthError")) {
     const twentyStatus = (error as { status?: number }).status ?? status;
     return c.json(
       { error: fallback, detail: error.message },
