@@ -7,6 +7,7 @@ import {
   normalizePhoneNumber,
   peerFromPairKey,
 } from "../packages/core/src/conversation/history/index";
+import { stopEnrollmentsForPeer } from "./sequence.js";
 
 /**
  * Conversation history: storage and the transaction boundary.
@@ -257,10 +258,14 @@ export const recordInboundMessage = mutation({
         .withIndex("providerEventId", (q) => q.eq("providerEventId", args.providerEventId!))
         .unique();
       if (seen) {
+        // Returning here is also the notification dedupe. Telnyx redelivers, and
+        // because the redelivery never reaches the code below it can neither
+        // stop an enrollment twice nor tell a human about the same reply twice.
         return {
           status: "duplicate" as const,
           conversationId: seen.conversationId,
           messageId: seen._id,
+          stoppedEnrollments: [],
         };
       }
     }
@@ -305,7 +310,12 @@ export const recordInboundMessage = mutation({
       await ctx.db.patch(conversationId, { messageCount: count });
     }
 
-    return { status: "stored" as const, conversationId, messageId };
+    // A reply ends the sequence. Same transaction as the store above, so the
+    // message and the stop cannot disagree, and it is already deduped by the
+    // providerEventId check.
+    const stoppedEnrollments = await stopEnrollmentsForPeer(ctx, phoneNumber, sentAt);
+
+    return { status: "stored" as const, conversationId, messageId, stoppedEnrollments };
   },
 });
 

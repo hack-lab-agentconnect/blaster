@@ -7,6 +7,7 @@ export * from "./helpers/index.ts";
 // reason as conversation/classification/index.ts.
 export type {
   EligibilityEvaluator,
+  EligibilityInput,
   EnrollmentEvent,
   EnrollmentMachineInput,
   EnrollmentStatus,

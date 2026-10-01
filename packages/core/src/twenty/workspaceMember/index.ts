@@ -18,6 +18,33 @@ import type { MemberLookup, ResolvedMember, WorkspaceMemberRecord } from "./type
 
 export type { MemberLookup, ResolvedMember, WorkspaceMemberRecord };
 
+/**
+ * The Bark device key from a Twenty RICH_TEXT field.
+ *
+ * Twenty returns a rich-text value as `{ blocknote, markdown }` over REST and as
+ * null or the same shape over GraphQL, and a field someone typed into by hand
+ * arrives as a bare string. Only the markdown carries the key, and it is trimmed
+ * because rich-text editing routinely leaves a trailing newline that would make
+ * every push fail against a key that is otherwise correct.
+ *
+ * Pure: no I/O, no request objects.
+ */
+export function extractBarkKey(raw: unknown): string | null {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    return trimmed ? trimmed : null;
+  }
+  if (typeof raw === "object") {
+    const markdown = (raw as { markdown?: unknown }).markdown;
+    if (typeof markdown === "string") {
+      const trimmed = markdown.trim();
+      return trimmed ? trimmed : null;
+    }
+  }
+  return null;
+}
+
 const MEMBERS_OBJECT = "workspaceMembers";
 
 /** Twenty caps a page at 200, which is far more members than a workspace holds. */
@@ -34,6 +61,8 @@ function normalizeMember(raw: TwentyRecord): WorkspaceMemberRecord {
     firstName: typeof name.firstName === "string" ? name.firstName : null,
     lastName: typeof name.lastName === "string" ? name.lastName : null,
     name: raw.name,
+    barkKeyRaw: raw.barkKey,
+    barkKey: extractBarkKey(raw.barkKey),
   };
 }
 

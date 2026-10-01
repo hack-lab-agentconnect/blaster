@@ -39,9 +39,22 @@ export interface InboundRecordInput {
   media?: Array<{ url: string; contentType?: string; size?: number }>;
 }
 
+/**
+ * What a stored reply stopped.
+ *
+ * Carried out of Convex so the API can decide whether the reply is worth
+ * notifying on. A duplicate reports an empty list, which is what makes the
+ * providerEventId dedupe inside the mutation double as the notification dedupe.
+ */
+export interface StoppedEnrollment {
+  enrollmentId: string;
+  sequenceId: string;
+  status: string;
+}
+
 export type InboundRecordResult =
-  | { status: "stored"; conversationId: string; messageId: string }
-  | { status: "duplicate"; conversationId: string; messageId: string }
+  | { status: "stored"; conversationId: string; messageId: string; stoppedEnrollments: StoppedEnrollment[] }
+  | { status: "duplicate"; conversationId: string; messageId: string; stoppedEnrollments: StoppedEnrollment[] }
   | { status: "not-configured" }
   | { status: "failed"; error: string };
 

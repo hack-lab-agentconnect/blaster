@@ -28,19 +28,20 @@ let convexResult:
 
 let statusResult: Record<string, unknown> = { status: "applied", messageId: "msg-1", stored: "delivered" };
 
-vi.mock("@blaster/core", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@blaster/core")>();
-  return {
-    ...actual,
-    listOwnedNumbers: vi.fn(async () => OWNED),
-    listAgencyPhones: vi.fn(async () => []),
-  };
-});
+/**
+ * What `recordInboundMessage` reports, so a test can control the stop without a
+ * Convex deployment. The real mutation stops the enrollments in the same
+ * transaction that stores the message; the app only learns how many.
+ */
+let stoppedEnrollments: Array<{ enrollmentId: string; sequenceId: string; status: string }> = [];
 
 vi.mock("../src/lib/convex/index.ts", () => ({
   recordInboundMessage: async (input: Record<string, unknown>) => {
     convexCalls.push(input);
-    return convexResult;
+    // A duplicate stopped nothing and notified nobody, because the real mutation
+    // returns before it reaches either step.
+    const stopped = convexResult.status === "stored" ? stoppedEnrollments : [];
+    return { ...convexResult, stoppedEnrollments: stopped };
   },
   applyOutboundStatus: async (id: string, status: string) => {
     convexCalls.push({ telnyxMessageId: id, status });
@@ -53,6 +54,17 @@ const KEYPAIR = (await crypto.subtle.generateKey({ name: "Ed25519" }, true, [
   "verify",
 ])) as CryptoKeyPair;
 const PUBLIC_KEY = Buffer.from(await crypto.subtle.exportKey("raw", KEYPAIR.publicKey)).toString("base64");
+
+vi.mock("@blaster/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@blaster/core")>();
+  return {
+    ...actual,
+    listOwnedNumbers: vi.fn(async () => OWNED),
+    listAgencyPhones: vi.fn(async () => []),
+    // Twenty is not configured in this file, so the reply fan-out is a no-op.
+    // The notification channel has its own tests in packages/core.
+  };
+});
 
 async function sign(payload: string, timestamp: string): Promise<string> {
   return Buffer.from(
@@ -87,6 +99,7 @@ beforeEach(async () => {
   convexCalls.length = 0;
   convexResult = { status: "stored", conversationId: "conv-1", messageId: "msg-1" };
   statusResult = { status: "applied", messageId: "msg-1", stored: "delivered" };
+  stoppedEnrollments = [];
   process.env.TELNYX_PUBLIC_KEY = PUBLIC_KEY;
   process.env.TELNYX_API_KEY = "test-key";
   delete process.env.TWENTY_BASE_URL;
@@ -140,6 +153,28 @@ describe("POST /api/webhooks/telnyx", () => {
     // a retry on something that is already saved.
     expect(response.status).toBe(200);
     expect(body).toMatchObject({ stored: false, duplicate: true });
+    // And a redelivery stops nothing and notifies nobody, because the mutation
+    // returns before it reaches either.
+    expect(body.stoppedEnrollments).toBe(0);
+  });
+
+  test("a reply reports the sequence steps it stopped", async () => {
+    stoppedEnrollments = [
+      { enrollmentId: "e-1", sequenceId: "s-1", status: "replied" },
+      { enrollmentId: "e-2", sequenceId: "s-1", status: "replied" },
+    ];
+    const response = await postSigned(inboundEvent("+17735550002"));
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(response.status).toBe(200);
+    // Surfaced in the response so the stop is observable without reading the db.
+    expect(body.stoppedEnrollments).toBe(2);
+  });
+
+  test("a reply with no active sequence stops nothing and still acks", async () => {
+    const response = await postSigned(inboundEvent("+17735550002"));
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({ stored: true, stoppedEnrollments: 0 });
   });
 
   test("an unsigned or tampered event is refused before anything is stored", async () => {

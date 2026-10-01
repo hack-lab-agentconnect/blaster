@@ -56,6 +56,7 @@ import {
 import { LOGOUT_USAGE, WHOAMI_USAGE, loginMain, logoutMain, whoamiMain } from "./login.ts";
 import { INBOX_USAGE, inboxList, inboxShow, type CliFlags } from "./inbox.ts";
 import { SEND_USAGE, sendMain } from "./send.ts";
+import { sequenceMain, type SequenceContext } from "./sequence.ts";
 
 interface Parsed {
   command: string | undefined;
@@ -286,6 +287,11 @@ async function main(): Promise<number> {
       const action = positional[0];
       if (action === "validate" || action === "check") return await sequenceValidate(flags, json);
       if (action === "preview") return await sequencePreview(flags, json);
+      // Everything else is the recorded-draft lifecycle: new/list/show/edit/run/rm.
+      const known = ["new", "create", "list", "ls", "show", "edit", "run", "dry-run", "rm", "delete"];
+      if (action !== undefined && known.includes(action)) {
+        return await sequenceMain(sequenceContext(flags, json), action, positional[1]);
+      }
       if (action === "help" || action === undefined) {
         console.log(SEQUENCE_USAGE);
         return 0;
@@ -301,12 +307,26 @@ async function main(): Promise<number> {
   }
 }
 
-const SEQUENCE_USAGE = `Usage: blaster sequence <action>
+const SEQUENCE_USAGE = `Usage: blaster sequence <action> [name]
 
-  validate   Check a sequence draft and print every problem at once
-  preview    Dry run: who would receive the next step, and who is skipped
+  new [name]     Build a draft interactively, check it, and record it
+  list           What is recorded
+  show <name>    The steps, plus a per-recipient plan
+  edit <name>    Change the first message
+  run <name>     Dry run. Says what is not wired up, then shows the plan
+  rm <name>      Forget a draft
 
-A draft is JSON on stdin or via --draft, for example:
+  validate       Check a JSON draft and print every problem at once
+  preview        Dry run a JSON draft against --recipients
+
+Drafts live in .blaster/sequences.json. They are local working material: a draft
+becomes real when the runner picks it up, and the runner does not exist yet.
+\`blaster sequence run\` says so rather than pretending otherwise.
+
+Add --recipients '[{"id":"1","to":"+15551234567","stateCode":"NY"}]' to any
+read-only action for a per-recipient compliance plan.
+
+A draft as JSON on stdin or via --draft, for example:
   {
     "name": "Spring outreach",
     "fromNumber": "+353871234567",
@@ -317,6 +337,24 @@ A draft is JSON on stdin or via --draft, for example:
       { "text": "Follow up in two days", "delayHours": 48, "isStop": false }
     ]
   }`;
+
+/** Everything `blaster sequence` needs, injected so tests can drive it. */
+function sequenceContext(
+  flags: Map<string, string | boolean>,
+  json: boolean,
+): SequenceContext {
+  return {
+    root: process.cwd(),
+    flags,
+    json,
+    jsonOut: asJson,
+    now: () => Date.now(),
+    // The machine hands over only the facts a send decision may depend on, so
+    // they are forwarded as they are rather than widened with anything else.
+    evaluate: (input) =>
+      evaluateEligibility(process.env, DEFAULT_OPTIONS, { id: "dry-run", ...input }),
+  };
+}
 
 /** Read stdin to the end, or return null when there is nothing piped in. */
 async function readStdin(): Promise<string | null> {

@@ -13,6 +13,14 @@ export interface WorkspaceMemberRecord {
   lastName?: string | null;
   /** The raw `name` composite as Twenty sent it. */
   name?: unknown;
+  /**
+   * Raw `barkKey` as Twenty returns it. A RICH_TEXT field, so it arrives as a
+   * composite or a bare string depending on the transport; `barkKey` is the
+   * extracted device key and is what callers should read.
+   */
+  barkKeyRaw?: unknown;
+  /** The Bark device key, or null when this member has not configured one. */
+  barkKey?: string | null;
   [key: string]: unknown;
 }
 

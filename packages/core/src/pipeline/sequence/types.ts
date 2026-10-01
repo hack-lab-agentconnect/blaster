@@ -75,14 +75,29 @@ export type SequenceEffect =
     }
   | { type: "none" };
 
-/** Injected so the machine stays pure: it reads no environment and no clock. */
-export type EligibilityEvaluator = (recipient: {
+/**
+ * The view of a recipient the eligibility rules need.
+ *
+ * Deliberately narrower than the `Recipient` the caller holds: these are the
+ * only facts a send decision may depend on, so adding a field here is a
+ * deliberate widening of what can block a message rather than an accident.
+ * The id is absent because no rule reads it, and a rule that wanted it would be
+ * a rule about a specific prospect rather than about eligibility.
+ */
+export interface EligibilityInput {
   to: string | null;
   country: string | null;
   doNotContact: boolean;
   hasReplied: boolean;
   sentInLastDay: number;
-}) => { eligible: boolean; reason: string | null; detail: string | null };
+}
+
+/** Injected so the machine stays pure: it reads no environment and no clock. */
+export type EligibilityEvaluator = (recipient: EligibilityInput) => {
+  eligible: boolean;
+  reason: string | null;
+  detail: string | null;
+};
 
 /**
  * Injected clock arithmetic.

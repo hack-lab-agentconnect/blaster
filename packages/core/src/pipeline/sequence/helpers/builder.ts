@@ -113,6 +113,15 @@ export interface Recipient {
   /** Phone number in E.164, when known. */
   to?: string | null;
   country?: string | null;
+  /**
+   * USPS state code from the number's area code, when it resolved to one.
+   *
+   * Present for the runner and the dry run rather than for these rules: quiet
+   * hours are a wall-clock window in the *recipient's* zone, and the area code is
+   * how that zone is reached without asking the prospect. See
+   * `helpers/quiet-hours.ts`.
+   */
+  stateCode?: string | null;
   doNotContact?: boolean;
   /** Set when the prospect has answered. */
   hasReplied?: boolean;

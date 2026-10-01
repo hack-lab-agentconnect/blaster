@@ -59,6 +59,7 @@ import { TelnyxError, listMessagingProfiles, sendMessage } from "./lib/telnyx/me
 import { readBreakdownFrom, twentyReader } from "./lib/pipeline/breakdown/index.ts";
 import { applyOutboundStatus, conversationMessages, listConversations, recordInboundMessage } from "./lib/convex/index.ts";
 import { requireOperator, resolveOperatorActor } from "./lib/auth/operator/index.ts";
+import { broadcastReply } from "@blaster/core";
 import {
   eventTypeOf,
   handleCallEvent,
@@ -113,6 +114,32 @@ function fail(
 
 function twentyClient(): TwentyClient {
   return new TwentyClient();
+}
+
+/**
+ * Push a reply to the members who have a Bark key.
+ *
+ * Awaited but never allowed to fail the request: the message is already stored
+ * and the sequence already stopped, and Telnyx retries a 500 three times, so a
+ * notification outage would otherwise turn a stored reply into a repeated one.
+ * A Twenty that cannot be reached is the same case, and is handled inside
+ * `broadcastReply` rather than here.
+ */
+async function notifyReply(
+  inbound: { to: string; body: string },
+  stoppedCount: number,
+): Promise<void> {
+  if (!process.env.TWENTY_BASE_URL || !process.env.TWENTY_API_KEY) return;
+  try {
+    await broadcastReply(twentyClient(), {
+      peer: inbound.to,
+      preview: inbound.body.slice(0, NOTIFY_PREVIEW_LENGTH),
+      stoppedCount,
+    });
+  } catch {
+    // `broadcastReply` reports rather than throws; this is belt and braces for
+    // the case where something in the fan-out itself is wrong.
+  }
 }
 
 /**
@@ -1004,6 +1031,9 @@ app.post("/api/phones/sync", async (c) => {
  * for up to the TTL; Telnyx retries three times, so the message recovers on its
  * own rather than being lost to a cache that was warm a minute too early.
  */
+/** Long enough to read on a lock screen, short enough to stay useful. */
+const NOTIFY_PREVIEW_LENGTH = 120;
+
 const OWNERSHIP_TTL_MS = 60_000;
 let ownershipCache: { at: number; sources: OwnershipSources } | null = null;
 
@@ -1113,6 +1143,14 @@ app.post("/api/webhooks/telnyx", async (c) => {
     if (result.status === "not-configured") {
       return c.json({ ok: false, error: "CONVEX_URL is not configured" }, 503);
     }
+
+    // The reply stopped the sequence inside the same Convex transaction that
+    // stored it, and only for a genuinely new event: a redelivery returned
+    // "duplicate" above and never reached this line, so it cannot notify twice.
+    const stopped = result.stoppedEnrollments?.length ?? 0;
+    if (result.status === "stored") {
+      await notifyReply(inbound, stopped);
+    }
     return c.json(
       {
         ok: true,
@@ -1122,6 +1160,9 @@ app.post("/api/webhooks/telnyx", async (c) => {
         duplicate: result.status === "duplicate",
         conversationId: result.conversationId,
         messageId: result.messageId,
+        // Named in the response so a test can assert the stop without reading
+        // the database, and so an operator can see why a sequence went quiet.
+        stoppedEnrollments: stopped,
       },
       200,
     );
