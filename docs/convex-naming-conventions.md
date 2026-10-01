@@ -67,8 +67,9 @@ be function references. ([Cron jobs](https://docs.convex.dev/scheduling/cron-job
 Codegen writes it on every `convex dev` run. Check it in so the tree typechecks
 without a running daemon, and never edit it by hand. ([Best practices](https://docs.convex.dev/understanding/best-practices/))
 
-### F8. `convex/convex.config.ts` is a fixed name
-Required by the framework for component mounting (`app.use(...)`).
+### F8. `convex/convex.config.ts` is a framework entrypoint with a fixed filename
+The place for installing components (`app.use(...)`) and framework-level
+configuration such as environment variables. ([convex.config.ts](https://docs.convex.dev/config/convex.config.ts))
 
 ## Repository conventions (we impose these on ourselves)
 
@@ -76,10 +77,10 @@ Convex enforces nothing about case style — its own examples mix cases in one
 tree — so the style rules below are ours. They exist so a reader can tell what
 kind of thing a name is without opening the file.
 
-### R1. camelCase for everything multi-word inside `convex/`
-Files, directories, tables, fields, indexes, and function names use camelCase:
-`phoneNumbers.ts`, `sequenceEnrollments`, `nextDueAt`, `recordInboundMessage`.
-Single-word names stay lowercase: `schema.ts`, `http.ts`, `queries.ts`.
+### R1. Filesystem naming: camelCase for everything multi-word inside `convex/` [enforced]
+File and directory names use camelCase: `phoneNumbers.ts`, `sequence/`,
+`recordInboundMessage` as an export name. Single-word names stay lowercase:
+`schema.ts`, `http.ts`, `queries.ts`. The gate checks this rule.
 
 Why camelCase rather than the kebab-case used elsewhere in this repo: the
 function address *is* the file path (F3), so the file name is a public API
@@ -87,15 +88,21 @@ surface, and the framework's own examples and generated paths use camelCase.
 Fighting that inside `convex/` would mean fighting the tool. The boundary is
 the directory: kebab-case outside, camelCase inside.
 
-### R2. Tables are camelCase plural nouns; fields are camelCase
-`sequenceEnrollments`, not `sequence_enrollments` or `SequenceEnrollment`.
-Field names are plain camelCase keys; Convex derives TypeScript types directly
-from them, so the casing flows end to end.
+### R2. Database naming: tables, fields, and indexes in camelCase [documented, not gated]
+Tables are camelCase plural nouns (`sequenceEnrollments`, not
+`sequence_enrollments` or `SequenceEnrollment`); fields are plain camelCase
+keys, which Convex derives TypeScript types from directly, so the casing
+flows end to end. The gate does not check this — it cannot tell a table name
+from any other string without parsing TypeScript, and a naming gate should not
+pretend to be a compiler.
 
-### R3. Index names mirror the indexed field path
+### R3. Index names mirror the indexed field path [documented, not gated]
 An index on `["providerEventId"]` is named `"providerEventId"`. Compound
-indexes join with nothing added. The name tells you exactly what the index
-serves without opening the schema.
+indexes join with nothing added. To be explicit: Convex places no semantic
+requirement on index names beyond uniqueness within the table — its own
+documentation uses names like `by_channel` — so this is purely our convention,
+chosen so the name tells you exactly what the index serves without opening
+the schema. The gate does not check it, for the same reason as R2.
 
 ### A note on what follows (R4–R7)
 Convex does not require any particular directory layout. Its own best-practices
@@ -125,20 +132,25 @@ convex/
 Only create the files a domain needs. A domain with no external calls has no
 `actions.ts`; a domain with no long-lived process has no `workflow.ts`.
 
-### R5. Thin wrappers over a `model.ts` layer
-Public functions (`queries.ts`, `mutations.ts`) validate args, call one model
-function, and return. All branching and all database access beyond that call
-lives in `model.ts`. This is the framework's own recommended shape — "most of
-your code should live in a model directory, with very short public functions
-that mostly just call into it" ([Best practices](https://docs.convex.dev/understanding/best-practices/)) —
-kept compatible with this repo by one additional constraint: pure decisions
-(eligibility, arithmetic, time math) belong in the shared core library where
-they are unit-testable without a database; `model.ts` takes `ctx`, asks core
-to decide, and persists the answer.
+### R5. Function files are boundaries; `model.ts` holds reusable domain logic
+`queries.ts`, `mutations.ts`, and `actions.ts` are Convex function boundary
+modules. They keep framework-specific concerns close to the wrapper —
+argument validation, transaction and execution boundaries, index selection —
+while reusable context-bound domain logic belongs in `model.ts`. Pure domain
+decisions (eligibility, arithmetic, time math) belong in the shared core
+library where they are unit-testable without a database; `model.ts` takes
+`ctx`, asks core to decide, and persists the answer.
 
-Why the split matters: a query or mutation handler is hard to unit test
-(it needs a database), while a pure function is trivial to test. Every line
-moved from a handler into a pure helper is a line the test suite can reach.
+This is deliberately not a rule that every handler contain exactly one model
+call. That would be an artificial requirement the implementation does not
+follow, and a convention stricter than its codebase is a convention nobody
+trusts. The goal is thin function boundaries, not one-line handlers: a reader
+should be able to see what a function does without scrolling, and anything
+bigger than that belongs in `model.ts` or core.
+
+This mirrors the framework's own recommended shape — "most of your code
+should live in a model directory, with very short public functions that
+mostly just call into it" ([Best practices](https://docs.convex.dev/understanding/best-practices/)).
 
 ### R6. Root `schema.ts` composes; it defines nothing
 ```ts
@@ -161,9 +173,12 @@ const http = httpRouter();
 registerUserRoutes(http);
 export default http;
 ```
-Each `http/<domain>.ts` exports a `register*Routes(http)` function. Handlers
-stay small and delegate to mutations/actions; a route handler must not contain
-business logic.
+Each `http/<domain>.ts` exports a `register*Routes(http)` function and owns
+its route definitions and HTTP handlers. Handlers stay small and delegate to
+mutations and actions for anything beyond reading the request and shaping the
+response; a route handler must not contain business logic. The rule is about
+the root file — `convex/http.ts` registers and handles nothing — not about
+pushing every line out of the domain modules.
 
 ### R8. Internal calls use `internal.*`, never `api.*`
 Any `runQuery`, `runMutation`, `runAction`, or scheduler target inside
@@ -177,10 +192,12 @@ silently widen what the backend itself can invoke. The framework's own
 best-practices page recommends the same split. ([Best practices](https://docs.convex.dev/understanding/best-practices/))
 
 ### R9. No function re-exports through barrels
-Because of F3, `export * from "./queries.js"` inside a domain `index.ts`
-would publish every function under a second address. Function modules are
-imported directly by path. Barrels may re-export *types and constants only*,
-with explicit `export type`, never values that could be function references.
+Do not use barrel files to re-export Convex functions. Convex discovers
+exported functions by module path (F3), so re-exporting functions can create
+additional API surfaces and makes the function address harder to reason about.
+Function modules are imported directly by path. Barrels may re-export *types
+and constants only*, with explicit `export type`, never values that could be
+function references.
 
 ### R10. This repository defines a schema, so root `schema.ts` is required
 Per F2, a schema itself is optional in Convex. This repository uses schema
@@ -214,11 +231,13 @@ The `check:convex` gate enforces exactly the R-rules that are objectively
 checkable without understanding intent:
 
 - every filename under `convex/` (outside `_generated/`, any extension) is
-  camelCase or a single lowercase word; only `convex.config.ts` is matched by
-  exact name, and only at the root (`schema.ts`, `http.ts`, and `crons.ts` pass
-  the casing rule on their own and need no exemption);
+  camelCase or a single lowercase word (R1); only `convex.config.ts` is matched
+  by exact name, and only at the root (`schema.ts`, `http.ts`, and `crons.ts`
+  pass the casing rule on their own and need no exemption);
 - every directory name under `convex/` (outside `_generated/`) follows the same
-  rule;
+  rule (R1);
+- table, field, and index names are **not** checked (R2/R3 are documented
+  conventions, not automated checks — see their markings);
 - root `schema.ts` exists with a default export (R10 — required here because
   this repository uses schema validation);
 - a root `http.ts`, when present, default-exports the router; a root
