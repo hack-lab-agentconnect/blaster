@@ -181,37 +181,6 @@ export const runEnrollmentStep = internalAction({
       return { kind: "sentinel", reason: decision.skipReason ?? "not-due" };
     }
 
-    const claim = await ctx.runMutation(internal.sequence.mutations.claimStep, {
-      enrollmentId: enrollment._id,
-      cursor: enrollment.cursor,
-    });
-    if (!claim.claimed) {
-      return { kind: "not-claimed", reason: claim.reason ?? "lost" };
-    }
-
-    // Re-read after the claim. The webhook that stopped this sequence runs in
-    // its own transaction and cannot interrupt an action, so the only safe
-    // place to notice is between winning the claim and building the request.
-    const recheck = await ctx.runQuery(internal.sequence.queries.loadRunContext, {
-      enrollmentId: enrollment._id,
-      now,
-    });
-    if (!recheck || recheck.enrollment.status !== "active") {
-      return { kind: "not-claimed", reason: "stopped-during-claim" };
-    }
-    if (recheck.enrollment.cursor !== enrollment.cursor) {
-      return { kind: "not-claimed", reason: "cursor-moved" };
-    }
-    if (recheck.hasReplied) {
-      // The person answered. A `stopOnReply` sequence must not send again.
-      await ctx.runMutation(internal.sequence.mutations.recordStep, {
-        enrollmentId: enrollment._id,
-        outcome: "replied",
-        steps,
-      });
-      return { kind: "sentinel", reason: "replied-before-send" };
-    }
-
     // Typed, so a typo in the variable name is a build error. The guard stays
     // even though `convexEnv.TELNYX_API_KEY` is declared required: parking the
     // enrollment with a readable reason beats throwing an opaque error out of
@@ -220,6 +189,7 @@ export const runEnrollmentStep = internalAction({
     if (!apiKey) {
       // Nothing was sent, so this is a definite failure rather than an unknown
       // outcome: it parks after the retry ceiling instead of being guessed at.
+      // No claim is taken for it, so the retry ceiling is actually reachable.
       await ctx.runMutation(internal.sequence.mutations.recordStep, {
         enrollmentId: enrollment._id,
         outcome: "failed",
@@ -250,26 +220,26 @@ export const runEnrollmentStep = internalAction({
       numberProfileId,
     });
 
-    // Capacity is claimed only once the send is certain to be attempted: after
-    // the number, the profile and the eligibility decision all say yes, and
-    // immediately before the provider call. Claiming earlier would spend tokens
-    // on sends that never happen. It is claimed for `fromNumber`, which is the
-    // pool's chosen number when a pool is assigned, so the account ceiling and
-    // the per-number bucket in convex/rateLimit.ts gate the pool path exactly
-    // as they gate a fixed-number sequence.
+    // Capacity is claimed once the send is certain to be attempted: the number,
+    // the profile and the eligibility decision all say yes. It is claimed for
+    // `fromNumber`, the pool's chosen number when a pool is assigned, so the
+    // account ceiling and the per-number bucket in convex/rateLimit.ts gate the
+    // pool path exactly as they gate a fixed-number sequence.
+    //
+    // Claimed BEFORE `claimStep`, because a claim taken here would be permanent
+    // (sequenceSendClaims rows are never deleted) and a capacity refusal would
+    // then strand the step as already-claimed forever. Deferring with no claim
+    // held is what lets the step be retried.
     const capacity = await ctx.runMutation(internal.sequence.mutations.claimSendCapacity, {
       fromNumber,
     });
     if (!capacity.ok) {
-      // A skip, not a failure: the step is still owed and `recordStep` leaves the
-      // cursor alone, so the enrollment stays due and the next tick tries again
-      // once capacity has recovered. Failing it instead would park the
-      // enrollment for a human over a limit we set ourselves.
-      await ctx.runMutation(internal.sequence.mutations.recordStep, {
+      await ctx.runMutation(internal.sequence.mutations.applySchedule, {
         enrollmentId: enrollment._id,
-        outcome: "skipped",
-        steps,
-        skipReason: "send-capacity-exhausted",
+        status: "active",
+        nextDueAt: capacity.retryAfter ?? now + 60_000,
+        lastSkipReason: "send-capacity-exhausted",
+        attempts: enrollment.attempts ?? 0,
       });
       return { kind: "sentinel", reason: "send-capacity-exhausted" };
     }
@@ -302,6 +272,40 @@ export const runEnrollmentStep = internalAction({
         recipientCountry: enrollment.country ?? null,
         numberProfileId,
       });
+    }
+
+    // Claim the step last, immediately before the provider call. Claim-before-send
+    // is what stops a duplicate send; taking the claim after every deferral is
+    // what makes a deferral retryable, because a claim is never released.
+    const claim = await ctx.runMutation(internal.sequence.mutations.claimStep, {
+      enrollmentId: enrollment._id,
+      cursor: enrollment.cursor,
+    });
+    if (!claim.claimed) {
+      return { kind: "not-claimed", reason: claim.reason ?? "lost" };
+    }
+
+    // Re-read after the claim. The webhook that stopped this sequence runs in
+    // its own transaction and cannot interrupt an action, so the only safe
+    // place to notice is between winning the claim and building the request.
+    const recheck = await ctx.runQuery(internal.sequence.queries.loadRunContext, {
+      enrollmentId: enrollment._id,
+      now,
+    });
+    if (!recheck || recheck.enrollment.status !== "active") {
+      return { kind: "not-claimed", reason: "stopped-during-claim" };
+    }
+    if (recheck.enrollment.cursor !== enrollment.cursor) {
+      return { kind: "not-claimed", reason: "cursor-moved" };
+    }
+    if (recheck.hasReplied) {
+      // The person answered. A `stopOnReply` sequence must not send again.
+      await ctx.runMutation(internal.sequence.mutations.recordStep, {
+        enrollmentId: enrollment._id,
+        outcome: "replied",
+        steps,
+      });
+      return { kind: "sentinel", reason: "replied-before-send" };
     }
 
     try {

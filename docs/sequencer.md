@@ -126,8 +126,9 @@ enrollment to the instant the pool is next able to send
 (`lastSkipReason: "pool-rate-limited"`). A pool with no active numbers parks the
 enrollment `awaiting-human` (`lastSkipReason: "pool-empty"`) instead of retrying
 forever. The number's budget is spent by an internal `consumeSender` mutation
-only once the step is claimed, so a deferred or lost step never costs a number an
-allowance. A sequence with no pool is unchanged and uses its fixed `fromNumber`.
+only once the limiter has granted capacity, and the step is claimed last, so a
+deferred or lost step never costs a number an allowance. A sequence with no pool
+is unchanged and uses its fixed `fromNumber`.
 
 The pool is the selection authority; the send rate limiter in
 `convex/rateLimit.ts` stays the admission control. The runner claims limiter

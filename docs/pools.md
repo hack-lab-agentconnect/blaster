@@ -72,12 +72,13 @@ The runner uses this twice:
    `lastSkipReason: "pool-rate-limited"`. If the pool has no active numbers at
    all it parks the enrollment `awaiting-human` with `lastSkipReason:
    "pool-empty"`. Neither case sends and neither drops the message.
-2. **After it owns the claim**, and after the send rate limiter grants capacity,
-   it calls the internal `consumeSender` mutation, which re-selects and spends
-   the number's budget in one transaction: it increments `sentToday`, sets
+2. **After the send rate limiter grants capacity** for the chosen number, it
+   calls the internal `consumeSender` mutation, which re-selects and spends the
+   number's budget in one transaction: it increments `sentToday`, sets
    `nextAvailableAt = now + minSpacingMs`, advances `pools.cursor`, and refreshes
    the rollup. Two runners cannot both spend the last unit of one number's
-   allowance.
+   allowance. The step's claim is taken *last*, immediately before the send, so a
+   deferral never leaves a claim behind.
 
 ## The pool and the send rate limiter
 
@@ -91,12 +92,18 @@ There are two rate authorities, and this is the relationship between them.
   paces with `minSpacingMs`, whose default is the limiter's own per-number period
   (`TELNYX_PER_NUMBER_PERIOD_MS`), so the two agree instead of competing.
 
-The runner claims limiter capacity for the pool-chosen number immediately before
-the Telnyx call. A refusal defers the enrollment (`send-capacity-exhausted`,
-retried next tick) rather than failing or parking it, and the pool's own budget
-is reserved only *after* capacity is granted, so a limiter refusal costs no
-number an allowance. In sequence: choose a number, claim capacity, reserve the
-pool budget, send.
+The runner claims limiter capacity for the pool-chosen number, then reserves the
+pool's own budget, then claims the step, then sends. The order matters:
+
+- A limiter refusal defers the enrollment to `retryAfter`
+  (`send-capacity-exhausted`) with no step claim taken, so the step actually
+  retries next tick. A refusal never fails and never parks the enrollment.
+- The pool's budget is reserved only *after* capacity is granted, so a refusal
+  costs no number an allowance.
+- The step claim is taken *last*, because `sequenceSendClaims` rows are never
+  released: a claim taken before a deferral would strand that step as
+  `already-claimed` forever. Claim-before-send still holds, because the claim is
+  taken immediately before the provider call.
 
 The limiter is load-bearing rather than belt-and-braces because of this repo's own
 error handling: `classifySendResult` treats any 4xx, a 429 included, as a
