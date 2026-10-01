@@ -1,6 +1,6 @@
 import type { MutationCtx } from "../_generated/server.js";
 import type { Doc, Id } from "../_generated/dataModel.js";
-import { selectSender } from "../../packages/core/src/pipeline/pool/index.js";
+import { availableAt, remapCursor, selectSender } from "../../packages/core/src/pipeline/pool/index.js";
 import { DAY_MS, memberState } from "./utils.js";
 import {
   membersOf,
@@ -113,11 +113,21 @@ export async function removeNumber(
   return existing._id;
 }
 
-/** Renumber the live memberships so `order` stays contiguous from zero. */
+/** Renumber the live memberships so `order` stays contiguous, and move the cursor. */
 async function compact(ctx: MutationCtx, poolId: Id<"pools">): Promise<void> {
-  const rows = (await membersOf(ctx, poolId)).filter((row) => row.status !== "removed");
-  for (const [index, row] of rows.entries()) {
+  const pool = await ctx.db.get("pools", poolId);
+  const live = (await membersOf(ctx, poolId)).filter((row) => row.status !== "removed");
+  const remap = new Map<number, number>();
+  live.forEach((row, index) => remap.set(row.order, index));
+  for (const [index, row] of live.entries()) {
     if (row.order !== index) await ctx.db.patch("poolNumbers", row._id, { order: index });
+  }
+  // Renumbering without moving the cursor would change which member the next
+  // pick resumes after. `remapCursor` follows the last-used member; when it was
+  // the one removed, it resumes from the member below it, or from the front.
+  if (pool && pool.cursor >= 0) {
+    const next = remapCursor(pool.cursor, remap);
+    if (next !== pool.cursor) await ctx.db.patch("pools", poolId, { cursor: next });
   }
 }
 
@@ -138,19 +148,28 @@ export async function reorderNumbers(
   if (!pool) throw new Error(`unknown pool ${poolId}`);
   const rows = await membersOf(ctx, poolId);
   const byNumber = new Map(rows.map((row) => [row.phoneNumber, row]));
+  // Old order -> new order, so the cursor can follow its member to its new
+  // position after the reorder (remapCursor).
+  const remap = new Map<number, number>();
   const named = new Set<string>();
   let position = 0;
   for (const phoneNumber of order) {
     const row = byNumber.get(phoneNumber);
     if (!row) continue;
     await ctx.db.patch("poolNumbers", row._id, { order: position });
+    remap.set(row.order, position);
     named.add(phoneNumber);
     position += 1;
   }
   for (const row of rows) {
     if (named.has(row.phoneNumber)) continue;
     if (row.order !== position) await ctx.db.patch("poolNumbers", row._id, { order: position });
+    remap.set(row.order, position);
     position += 1;
+  }
+  if (pool.cursor >= 0) {
+    const next = remapCursor(pool.cursor, remap);
+    if (next !== pool.cursor) await ctx.db.patch("pools", poolId, { cursor: next });
   }
   await writeRollup(ctx, pool, poolId, now);
 }
@@ -158,14 +177,21 @@ export async function reorderNumbers(
 /**
  * Reserve one sender for a send, spending its budget atomically.
  *
- * This is the only function that advances the pool. It selects the same member
- * the read-side would, then increments that member's counters, advances the
- * cursor, and refreshes the rollup in one transaction — so two callers cannot
- * both spend the last unit of one number's allowance.
+ * The caller passes the `order` that `availableSender` proposed, and this
+ * reserves *that* member rather than re-selecting. That is what makes the read
+ * and the write agree: the number the runner evaluated eligibility with, the
+ * number the send rate limiter charged, and the number the message leaves from
+ * are the same by construction, so a proposal that has since become unavailable
+ * is refused and the caller defers rather than sending from a different number.
+ *
+ * This is the only function that advances the pool. It increments the member's
+ * counters, advances the cursor to it, and refreshes the rollup in one
+ * transaction, so two callers cannot both spend the last unit of one allowance.
  */
 export async function consume(
   ctx: MutationCtx,
   poolId: Id<"pools">,
+  order: number,
   now: number,
 ): Promise<SenderAvailability> {
   const pool = await ctx.db.get("pools", poolId);
@@ -173,14 +199,21 @@ export async function consume(
 
   const rows = await membersOf(ctx, poolId);
   const policy = policyOf(pool);
-  const selection = selectSender(rows.map(memberState), pool.cursor, now, policy);
-  if (selection.order === null) {
+  const row = rows.find((candidate) => candidate.order === order && candidate.status === "active");
+  if (!row) {
+    // The proposed member was removed or paused between the read and now. Report
+    // when the pool can next send and let the caller defer; do not substitute a
+    // different number, which would send under a profile eligibility never saw.
+    const selection = selectSender(rows.map(memberState), pool.cursor, now, policy);
     await ctx.db.patch("pools", poolId, { nextAvailableAt: selection.soonestNextAvailableAt ?? now });
     return { sender: null, soonestNextAvailableAt: selection.soonestNextAvailableAt };
   }
 
-  const row = rows.find((candidate) => candidate.order === selection.order);
-  if (!row) return { sender: null, soonestNextAvailableAt: null };
+  const ready = availableAt(memberState(row), now, policy);
+  if (ready > now) {
+    await ctx.db.patch("pools", poolId, { nextAvailableAt: ready });
+    return { sender: null, soonestNextAvailableAt: ready };
+  }
 
   const rolled = now - row.dayStartedAt >= DAY_MS;
   await ctx.db.patch("poolNumbers", row._id, {

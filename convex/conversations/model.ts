@@ -1,5 +1,6 @@
 import type { MutationCtx, QueryCtx } from "../_generated/server.js";
 import type { Doc, Id } from "../_generated/dataModel.js";
+import { poolContainsNumber } from "../pool/helpers.js";
 import {
   conversationPairKey,
   normalizePhoneNumber,
@@ -77,7 +78,15 @@ export async function campaignFor(
     // matched to a conversation, and a stopped sequence is not sending now.
     if (enrollment.to !== peerNumber || enrollment.status === "opted-out") continue;
     const sequence = await ctx.db.get("sequences", enrollment.sequenceId);
-    if (!sequence || sequence.fromNumber !== blasterNumber) continue;
+    if (!sequence) continue;
+    // A sequence sends from its fixed `fromNumber`, or, when a pool is assigned,
+    // from whichever number the pool chose. Matching on `fromNumber` alone would
+    // leave every pool-backed thread `unassigned`, so a pool sequence also
+    // matches when the thread's blaster number is a member of its pool.
+    const usesNumber =
+      sequence.fromNumber === blasterNumber ||
+      (sequence.poolId ? await poolContainsNumber(ctx, sequence.poolId, blasterNumber) : false);
+    if (!usesNumber) continue;
     if (!sequence.campaignId) continue;
     matches.push({
       campaignId: sequence.campaignId,

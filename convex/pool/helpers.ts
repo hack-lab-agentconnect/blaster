@@ -63,6 +63,26 @@ export async function senderForRow(
 }
 
 /**
+ * Whether a pool contained this E.164 number (and has not removed it).
+ *
+ * Used by the conversations domain to attribute a thread to a pool-backed
+ * sequence: such a sequence has a `poolId` and a fixed `fromNumber` that is not
+ * the number it actually sends from, so matching on `fromNumber` alone leaves
+ * every pool-backed thread unassigned.
+ */
+export async function poolContainsNumber(
+  ctx: QueryCtx,
+  poolId: Id<"pools">,
+  phoneNumber: string,
+): Promise<boolean> {
+  const row = await ctx.db
+    .query("poolNumbers")
+    .withIndex("poolPhone", (q) => q.eq("poolId", poolId).eq("phoneNumber", phoneNumber))
+    .first();
+  return row !== null && row.status !== "removed";
+}
+
+/**
  * The next number that may send, computed without consuming any budget.
  *
  * The runner calls this before it claims a step to decide whether to send or

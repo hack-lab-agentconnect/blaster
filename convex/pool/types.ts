@@ -66,6 +66,12 @@ export type ReorderNumbersArgs = Infer<typeof reorderNumbersArgsValidator>;
 
 export const consumeSenderArgsValidator = v.object({
   poolId: v.id("pools"),
+  /**
+   * The `order` `availableSender` proposed. The mutation reserves *that* member
+   * rather than re-selecting, so the number the runner evaluated eligibility
+   * with, charged capacity for, and sends from are the same by construction.
+   */
+  order: v.number(),
   now: v.optional(v.number()),
 });
 export type ConsumeSenderArgs = Infer<typeof consumeSenderArgsValidator>;

@@ -87,6 +87,10 @@ export const runEnrollmentStep = internalAction({
     // which is what keeps the message out of the carrier's limit queue.
     let fromNumber = sequence.fromNumber;
     let numberProfileId: string | null = sequence.numberProfileId ?? null;
+    // The order `availableSender` proposed. It is passed back to `consumeSender`
+    // so the reservation is for the same member eligibility and the limiter were
+    // evaluated against, rather than a fresh pick that could differ.
+    let poolOrder: number | null = null;
     if (sequence.poolId) {
       const availability = await ctx.runQuery(internal.pool.queries.availableSender, {
         poolId: sequence.poolId as Id<"pools">,
@@ -115,6 +119,7 @@ export const runEnrollmentStep = internalAction({
       }
       fromNumber = availability.sender.phoneNumber;
       numberProfileId = availability.sender.messagingProfileId ?? null;
+      poolOrder = availability.sender.order;
     }
 
     const env = profileEnv(loaded.profilePairs);
@@ -212,8 +217,8 @@ export const runEnrollmentStep = internalAction({
 
     let outcome: RunOutcome;
     // The profile the eligibility check already accepted, resolved the same way
-    // rather than by a second independent decision. Re-resolved below if the
-    // pool's reservation returns a different number than the one read.
+    // rather than by a second independent decision. `consumeSender` reserves the
+    // same order this was resolved for, so this is the profile on the wire.
     let profile = resolveMessagingProfile(env, {
       to,
       recipientCountry: enrollment.country ?? null,
@@ -250,9 +255,10 @@ export const runEnrollmentStep = internalAction({
     // what decides WHETHER it may, so the two do not compete: the pool paces,
     // the limiter admits. Losing the reservation here is rare (another runner
     // took the last slot); the answer is still to defer, never to send unpaced.
-    if (sequence.poolId) {
+    if (sequence.poolId && poolOrder !== null) {
       const reserved = await ctx.runMutation(internal.pool.mutations.consumeSender, {
         poolId: sequence.poolId as Id<"pools">,
+        order: poolOrder,
         now,
       });
       if (!reserved.sender) {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { availableAt, selectSender } from "../src/pipeline/pool/index.ts";
+import { availableAt, remapCursor, selectSender } from "../src/pipeline/pool/index.ts";
 import type { PoolMemberState, PoolPolicy } from "../src/pipeline/pool/index.ts";
 
 /**
@@ -91,5 +91,56 @@ describe("selectSender", () => {
       order: null,
       soonestNextAvailableAt: null,
     });
+  });
+});
+
+describe("remapCursor", () => {
+  test("follows the last-used member to its new order", () => {
+    const mapping = new Map([
+      [0, 0],
+      [1, 1],
+      [2, 2],
+    ]);
+    expect(remapCursor(2, mapping)).toBe(2);
+  });
+
+  test("follows the member when a compaction shifts it down", () => {
+    // Old members 0 and 2 survive; 1 was removed. The last-used member (old 2)
+    // becomes order 1.
+    const mapping = new Map([
+      [0, 0],
+      [2, 1],
+    ]);
+    expect(remapCursor(2, mapping)).toBe(1);
+  });
+
+  test("falls to the member below when the last-used member is removed", () => {
+    // Old 1 was the cursor and is now gone; old 0 is the member below it.
+    const mapping = new Map([
+      [0, 0],
+      [2, 1],
+    ]);
+    expect(remapCursor(1, mapping)).toBe(0);
+  });
+
+  test("restarts at the front when nothing is below the removed cursor", () => {
+    // Old 0 was the cursor and is now gone; nothing sits below it.
+    const mapping = new Map([
+      [1, 0],
+      [2, 1],
+    ]);
+    expect(remapCursor(0, mapping)).toBe(-1);
+  });
+
+  test("a fresh pool's -1 cursor is unchanged", () => {
+    expect(remapCursor(-1, new Map([[0, 0]]))).toBe(-1);
+  });
+
+  test("a cursor past every live member resumes at the last one", () => {
+    const mapping = new Map([
+      [0, 0],
+      [1, 1],
+    ]);
+    expect(remapCursor(5, mapping)).toBe(1);
   });
 });

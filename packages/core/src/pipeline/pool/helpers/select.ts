@@ -65,3 +65,27 @@ export function selectSender(
   }
   return { order: null, soonestNextAvailableAt: soonest };
 }
+
+/**
+ * Where the cursor should point after a pool's orders change.
+ *
+ * `cursor` is the old order of the member the pool last used, and `mapping`
+ * carries each live member's old order to its new one. The cursor follows the
+ * same member to its new position. When that member is gone, it falls to the
+ * live member just below the old cursor, so the next pick resumes where the
+ * pool left off rather than skipping a number or restarting; when there is no
+ * member below, `-1` makes the next pick start at the front.
+ *
+ * Pure, so the removal and reorder paths share one implementation and it is
+ * tested without a database.
+ */
+export function remapCursor(cursor: number, mapping: ReadonlyMap<number, number>): number {
+  if (cursor < 0) return cursor;
+  const mapped = mapping.get(cursor);
+  if (mapped !== undefined) return mapped;
+  let below: number | null = null;
+  for (const oldOrder of mapping.keys()) {
+    if (oldOrder < cursor && (below === null || oldOrder > below)) below = oldOrder;
+  }
+  return below === null ? -1 : (mapping.get(below) ?? -1);
+}

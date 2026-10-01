@@ -73,12 +73,16 @@ The runner uses this twice:
    all it parks the enrollment `awaiting-human` with `lastSkipReason:
    "pool-empty"`. Neither case sends and neither drops the message.
 2. **After the send rate limiter grants capacity** for the chosen number, it
-   calls the internal `consumeSender` mutation, which re-selects and spends the
-   number's budget in one transaction: it increments `sentToday`, sets
-   `nextAvailableAt = now + minSpacingMs`, advances `pools.cursor`, and refreshes
-   the rollup. Two runners cannot both spend the last unit of one number's
-   allowance. The step's claim is taken *last*, immediately before the send, so a
-   deferral never leaves a claim behind.
+   calls the internal `consumeSender` mutation with the `order` the read
+   proposed. That mutation reserves *that* member — refusing and reporting the
+   next slot if it is no longer available, rather than substituting another
+   number — and spends its budget in one transaction: it increments `sentToday`,
+   sets `nextAvailableAt = now + minSpacingMs`, advances `pools.cursor`, and
+   refreshes the rollup. Read and write therefore agree: the number eligibility
+   was evaluated against, the number the limiter charged, and the number the
+   message leaves from are the same by construction. The step's claim is taken
+   *last*, immediately before the send, so a deferral never leaves a claim
+   behind.
 
 ## The pool and the send rate limiter
 
@@ -164,7 +168,9 @@ Removal is a **soft** removal. `convex/pool/mutations.ts`:
 1. Resolve the phone number to a `phoneNumbers` row, then to its `poolNumbers`
    membership by the `poolPhoneNumber` index.
 2. Patch the membership to `status: "removed"` with `removedAt`.
-3. Compact the remaining live memberships so `order` stays contiguous.
+3. Compact the remaining live memberships so `order` stays contiguous, and move
+   `pools.cursor` with them to the same member's new position (or to the member
+   below the removed one), so dispatch still resumes where it left off.
 4. Refresh the pool rollup in the same transaction.
 
 It is not a delete because an in-flight send may already have chosen that number,

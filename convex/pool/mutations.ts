@@ -100,6 +100,6 @@ export const consumeSender = internalMutation({
   args: consumeSenderArgsValidator,
   handler: async (ctx, args) => {
     const now = args.now ?? Date.now();
-    return consume(ctx, args.poolId, now);
+    return consume(ctx, args.poolId, args.order, now);
   },
 });

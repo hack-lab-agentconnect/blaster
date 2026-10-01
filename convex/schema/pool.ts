@@ -58,6 +58,7 @@ export const poolTables = {
     removedAt: v.optional(v.number()),
   })
     .index("poolPhoneNumber", ["poolId", "phoneNumberId"])
+    .index("poolPhone", ["poolId", "phoneNumber"])
     .index("poolOrder", ["poolId", "order"])
     .index("poolStatusOrder", ["poolId", "status", "order"]),
 };
