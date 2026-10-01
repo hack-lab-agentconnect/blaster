@@ -59,7 +59,7 @@ import { TelnyxError, listMessagingProfiles, sendMessage } from "./lib/telnyx/me
 import { readBreakdownFrom, twentyReader } from "./lib/pipeline/breakdown/index.ts";
 import { applyOutboundStatus, conversationMessages, listConversations, recordInboundMessage } from "./lib/convex/index.ts";
 import { requireOperator, resolveOperatorActor } from "./lib/auth/operator/index.ts";
-import { broadcastReply } from "@blaster/core";
+import { broadcastReply, classifyMessageRules } from "@blaster/core";
 import {
   eventTypeOf,
   handleCallEvent,
@@ -127,14 +127,21 @@ function twentyClient(): TwentyClient {
  */
 async function notifyReply(
   inbound: { to: string; body: string },
-  stoppedCount: number,
+  stopped: Array<{ ownerMemberId: string | null }>,
 ): Promise<void> {
   if (!process.env.TWENTY_BASE_URL || !process.env.TWENTY_API_KEY) return;
   try {
+    // Owners come from the stopped records themselves: the routing lives in
+    // the enrollment, not in a list kept beside the workflow. Absent owners
+    // fall back to every member with a key, inside broadcastReply.
+    const targetMemberIds = stopped
+      .map((row) => row.ownerMemberId)
+      .filter((id): id is string => typeof id === "string" && id !== "");
     await broadcastReply(twentyClient(), {
       peer: inbound.to,
       preview: inbound.body.slice(0, NOTIFY_PREVIEW_LENGTH),
-      stoppedCount,
+      stoppedCount: stopped.length,
+      ...(targetMemberIds.length > 0 ? { targetMemberIds } : {}),
     });
   } catch {
     // `broadcastReply` reports rather than throws; this is belt and braces for
@@ -1128,6 +1135,10 @@ app.post("/api/webhooks/telnyx", async (c) => {
       );
     }
 
+    // Opt-out is decided here with the deterministic classifier, never guessed
+    // in the mutation: only the confidence-1 rule baseline may stop harder than
+    // a reply, because anything probabilistic belongs behind a human confirm.
+    const optedOut = classifyMessageRules(inbound.body).state === "opt_out";
     const result = await recordInboundMessage({
       from: inbound.from,
       to: inbound.to,
@@ -1135,6 +1146,7 @@ app.post("/api/webhooks/telnyx", async (c) => {
       ...(inbound.telnyxMessageId ? { telnyxMessageId: inbound.telnyxMessageId } : {}),
       ...(inbound.providerEventId ? { providerEventId: inbound.providerEventId } : {}),
       receivedAt: inbound.receivedAt,
+      ...(optedOut ? { optedOut: true as const } : {}),
       ...(inbound.media ? { media: inbound.media } : {}),
     });
     if (result.status === "failed") {
@@ -1147,7 +1159,7 @@ app.post("/api/webhooks/telnyx", async (c) => {
     // The reply stopped the sequence inside the same Convex transaction that
     // stored it, and only for a genuinely new event: a redelivery returned
     // "duplicate" above and never reached this line, so it cannot notify twice.
-    const stopped = result.stoppedEnrollments?.length ?? 0;
+    const stopped = result.status === "stored" ? (result.stoppedEnrollments ?? []) : [];
     if (result.status === "stored") {
       await notifyReply(inbound, stopped);
     }
@@ -1162,7 +1174,7 @@ app.post("/api/webhooks/telnyx", async (c) => {
         messageId: result.messageId,
         // Named in the response so a test can assert the stop without reading
         // the database, and so an operator can see why a sequence went quiet.
-        stoppedEnrollments: stopped,
+        stoppedEnrollments: stopped.length,
       },
       200,
     );

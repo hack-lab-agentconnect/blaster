@@ -17,6 +17,11 @@ export const envStatus = internalQuery({
     const status: Record<string, { present: boolean; required: boolean }> = {};
     for (const variable of manifest.vars) {
       status[variable.name] = {
+        // The question is whether a manifest variable is set, and the name is a
+        // runtime value here rather than a declared one. `env` is typed by
+        // declared names, so it cannot answer "is this arbitrary key present";
+        // `process.env` can.
+        // eslint-disable-next-line @convex-dev/no-process-env
         present: Boolean(process.env[variable.name]),
         required: variable.required,
       };
@@ -34,6 +39,10 @@ export const environment = query({
 export const listMessagingProfiles = query({
   args: {},
   handler: async (ctx) => {
+    // messagingProfiles is a bounded config table: one row per country the
+    // deployment sends from, so the whole set is the answer and a page would
+    // just hide rows.
+    // eslint-disable-next-line @convex-dev/no-collect-in-query
     const profiles = await ctx.db.query("messagingProfiles").collect();
     return profiles.sort((a, b) => a.country.localeCompare(b.country));
   },

@@ -174,6 +174,37 @@ describe("broadcastReply", () => {
     expect(result.aborted).toBe(true);
   });
 
+  test("target members narrow the fan-out to the responsible owners", async () => {
+    const seen: string[] = [];
+    const fetchFn = (async (_url: string, init?: RequestInit) => {
+      seen.push((JSON.parse(String(init?.body)) as { device_key: string }).device_key);
+      return ok();
+    }) as unknown as typeof fetch;
+    // The routing lives in the stopped records: only the owner is told, even
+    // though another member also has a key.
+    const result = await broadcastReply(
+      clientWith([member("a", "key-a"), member("b", "key-b")]),
+      { ...notification, targetMemberIds: ["b"] },
+      env,
+      fetchFn,
+    );
+    expect(seen).toEqual(["key-b"]);
+    expect(result.sent).toBe(1);
+  });
+
+  test("an empty target list falls back to every member with a key", async () => {
+    const fetchFn = vi.fn(async () => ok()) as unknown as typeof fetch;
+    // Absent owners mean nobody was signed in at enroll time, so the honest
+    // answer is everyone rather than no one.
+    const result = await broadcastReply(
+      clientWith([member("a", "key-a"), member("b", "key-b")]),
+      { ...notification, targetMemberIds: [] },
+      env,
+      fetchFn,
+    );
+    expect(result.sent).toBe(2);
+  });
+
   test("the push is time-sensitive and grouped, because a reply is waited on", async () => {
     let payload: Record<string, unknown> = {};
     const fetchFn = (async (_url: string, init?: RequestInit) => {

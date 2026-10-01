@@ -76,6 +76,8 @@ interface EnrollmentContext {
   sentInLastDay: number;
   doNotContact: boolean;
   hasReplied: boolean;
+  /** The profile bound to the sending number, forwarded to eligibility. */
+  numberProfileId?: string | null;
   evaluate: EnrollmentMachineInput["evaluate"];
   nextAllowedSendAt: EnrollmentMachineInput["nextAllowedSendAt"];
   verdict: Verdict | null;
@@ -123,6 +125,7 @@ export function createEnrollmentMachine() {
           doNotContact: context.doNotContact,
           hasReplied: context.hasReplied,
           sentInLastDay: context.sentInLastDay,
+          numberProfileId: context.numberProfileId ?? null,
         });
         const window = quietHoursWindow(context.timeZone, context.now, context.approximateZone);
         return {
@@ -323,6 +326,7 @@ export function createEnrollmentMachine() {
       sentInLastDay: input.sentInLastDay,
       doNotContact: input.doNotContact,
       hasReplied: input.hasReplied,
+      numberProfileId: input.numberProfileId ?? null,
       evaluate: input.evaluate,
       nextAllowedSendAt: input.nextAllowedSendAt,
       verdict: null,

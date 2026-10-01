@@ -28,8 +28,14 @@ import {
  *
  * Two different indexes serve two different questions, and conflating them is
  * what makes an inbox slow: "everything, newest first" reads `latestMessageAt`,
- * while "just the threads for this number" reads `blasterNumber` and sorts in
- * memory. Both are bounded by the same limit.
+ * while "just the threads for this number" reads `blasterNumber` then
+ * `latestMessageAt`. Both are ordered by the index and capped at `limit`, so
+ * neither reads more threads than the page it returns.
+ *
+ * The re-sort below is over `limit` rows and exists because `latestMessageAt` is
+ * optional: a thread with no stored timestamp yet sorts on `createdAt` instead,
+ * and the index cannot know that. It decides the order among rows the index
+ * already narrowed, rather than choosing which rows to read.
  *
  * The campaign is resolved per conversation, so the returned order does not
  * depend on which thread happened to be looked at first, and a contact
@@ -55,8 +61,11 @@ export const listConversations = query({
     const rows = blasterNumber
       ? await ctx.db
           .query("conversations")
-          .withIndex("blasterNumber", (q) => q.eq("blasterNumber", blasterNumber))
-          .collect()
+          .withIndex("blasterNumberLatestMessageAt", (q) =>
+            q.eq("blasterNumber", blasterNumber),
+          )
+          .order("desc")
+          .take(limit)
       : await ctx.db
           .query("conversations")
           .withIndex("latestMessageAt", (q) => q)

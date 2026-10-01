@@ -20,7 +20,7 @@ export const upsertMessagingProfile = internalMutation({
       .withIndex("country", (q) => q.eq("country", args.country))
       .unique();
     if (existing) {
-      await ctx.db.patch(existing._id, {
+      await ctx.db.patch("messagingProfiles", existing._id, {
         profileId: args.profileId,
         tenDlcCampaignId: args.tenDlcCampaignId,
         alphaSender: args.alphaSender,

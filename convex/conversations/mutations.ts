@@ -33,6 +33,13 @@ export const recordInboundMessage = mutation({
     telnyxMessageId: v.optional(v.string()),
     providerEventId: v.optional(v.string()),
     receivedAt: v.optional(v.number()),
+    /**
+     * True when the sender unsubscribed rather than merely replying. Decided by
+     * the caller with the deterministic classifier, never guessed here: the
+     * mutation records what it is told, and the classifier is the only place
+     * that reads message text.
+     */
+    optedOut: v.optional(v.boolean()),
     media: v.optional(
       v.array(
         v.object({
@@ -85,13 +92,13 @@ export const recordInboundMessage = mutation({
       ...(args.media && args.media.length > 0 ? { media: args.media } : {}),
     });
 
-    const conversation = await ctx.db.get(conversationId);
+    const conversation = await ctx.db.get("conversations", conversationId);
     const count = (conversation?.messageCount ?? 0) + 1;
     // A redelivery carries the original timestamp, so the summary only moves
     // forward. Without this, an out-of-order retry would make a thread look
     // newer than the conversation it belongs to.
     if (sentAt >= (conversation?.latestMessageAt ?? 0)) {
-      await ctx.db.patch(conversationId, {
+      await ctx.db.patch("conversations", conversationId, {
         latestMessageAt: sentAt,
         latestDirection: "inbound",
         latestPreview: args.body.slice(0, PREVIEW_LENGTH),
@@ -99,13 +106,15 @@ export const recordInboundMessage = mutation({
         messageCount: count,
       });
     } else {
-      await ctx.db.patch(conversationId, { messageCount: count });
+      await ctx.db.patch("conversations", conversationId, { messageCount: count });
     }
 
     // A reply ends the sequence. Same transaction as the store above, so the
     // message and the stop cannot disagree, and it is already deduped by the
-    // providerEventId check.
-    const stoppedEnrollments = await stopEnrollmentsForPeer(ctx, phoneNumber, sentAt);
+    // providerEventId check. An opt-out stops harder: the status is terminal
+    // and sticky, so no later run can re-enroll the prospect by accident.
+    const stopStatus = args.optedOut === true ? ("opted-out" as const) : ("replied" as const);
+    const stoppedEnrollments = await stopEnrollmentsForPeer(ctx, phoneNumber, sentAt, stopStatus);
 
     return { status: "stored" as const, conversationId, messageId, stoppedEnrollments };
   },
@@ -145,7 +154,7 @@ export const applyOutboundStatus = mutation({
     if (!advanced) {
       return { status: "stale" as const, messageId: message._id, stored: message.status };
     }
-    await ctx.db.patch(message._id, { status: advanced });
+    await ctx.db.patch("messages", message._id, { status: advanced });
     return { status: "applied" as const, messageId: message._id, stored: advanced };
   },
 });

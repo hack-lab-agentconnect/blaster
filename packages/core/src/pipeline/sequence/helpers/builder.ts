@@ -18,6 +18,7 @@
  */
 
 import { normaliseCountry, resolveMessagingProfile, type MessagingProfileEnv, type ProfileResolution } from "../../../telnyx/messaging/helpers/profile.ts";
+import type { EnrollmentStatus } from "../types.ts";
 
 export type SequenceStatus = "draft" | "active" | "paused" | "completed";
 
@@ -127,6 +128,12 @@ export interface Recipient {
   hasReplied?: boolean;
   /** Messages already sent to this recipient in the last 24 hours. */
   sentInLastDay?: number;
+  /**
+   * The profile bound to the sending number, from the Twenty phone row. It
+   * takes precedence over the country map, so an operator's explicit binding
+   * is not overridden by a missing country entry.
+   */
+  numberProfileId?: string | null;
 }
 
 export type SkipReason =
@@ -170,7 +177,7 @@ export function evaluateEligibility(
   const profile = resolveMessagingProfile(env, {
     to: recipient.to,
     recipientCountry: recipient.country,
-    numberProfileId: null,
+    numberProfileId: recipient.numberProfileId ?? null,
   });
   const country = profile.country ?? normaliseCountry(recipient.to);
 
@@ -204,14 +211,20 @@ export function evaluateEligibility(
   return { eligible: true, reason: null, profile, detail: null };
 }
 
-/** An enrolled prospect's position in a sequence. */
+/**
+ * An enrolled prospect's position in a sequence.
+ *
+ * Status is the shared `EnrollmentStatus`, not a second inline union: the
+ * machine produces `ambiguous` and `awaiting-human`, and a copy of the union
+ * here would reject exactly the states the machine needs persisted.
+ */
 export interface Enrollment {
   id: string;
   sequenceId: string;
   recipientId: string;
   /** Index of the next step to consider. */
   cursor: number;
-  status: "active" | "replied" | "opted-out" | "completed" | "paused";
+  status: EnrollmentStatus;
   enrolledAt: number;
   /** When the current step became due, or null once the sequence is finished. */
   nextDueAt: number | null;

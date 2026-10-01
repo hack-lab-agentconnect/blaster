@@ -1,4 +1,5 @@
 import { defineApp } from "convex/server";
+import { v } from "convex/values";
 import agent from "@convex-dev/agent/convex.config";
 
 /**
@@ -18,8 +19,18 @@ import agent from "@convex-dev/agent/convex.config";
  *
  * Components rather than hand-rolled clients so the provider state lives in
  * the database, survives a redeploy, and is queryable.
+ *
+ * The declared `env` is what makes `_generated/server`'s `env` object typed, so
+ * `env.TELNYX_API_KEY` is a `string` and a typo in the name is a build error
+ * rather than a runtime `undefined`. Declaring it here does not set it: the
+ * value still has to be provisioned on the deployment, and `config/env-vars.json`
+ * stays the single list of what the repo expects to exist.
  */
-const app = defineApp();
+const app = defineApp({
+  env: {
+    TELNYX_API_KEY: v.string(),
+  },
+});
 
 app.use(agent);
 

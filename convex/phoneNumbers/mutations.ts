@@ -17,7 +17,7 @@ export const storePhoneNumber = internalMutation({
       .withIndex("phoneNumber", (q) => q.eq("phoneNumber", args.phone.phoneNumber))
       .unique();
     if (existing) {
-      await ctx.db.patch(existing._id, { ...args.phone });
+      await ctx.db.patch("phoneNumbers", existing._id, { ...args.phone });
       return existing._id;
     }
     return ctx.db.insert("phoneNumbers", { ...args.phone });
@@ -33,7 +33,7 @@ export const setMessagingBinding = mutation({
       .withIndex("phoneNumber", (q) => q.eq("phoneNumber", args.phoneNumber))
       .unique();
     if (!existing) throw new Error(`unknown phone number ${args.phoneNumber}`);
-    await ctx.db.patch(existing._id, { messagingProfileId: args.messagingProfileId });
+    await ctx.db.patch("phoneNumbers", existing._id, { messagingProfileId: args.messagingProfileId });
     return existing._id;
   },
 });

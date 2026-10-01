@@ -84,8 +84,10 @@ metadata field. Losing a display name is cosmetic; failing a write is not.
 Two caches keep this cheap, because attribution sits on the hot path of a batch
 send that touches Twenty once per recipient:
 
-- `sub` to member id, in `resolveMemberIdentity` — keyed on `sub` because it
-  survives token refresh, which an access token does not.
+- strongest signal to member id, in `resolveMemberIdentity` — keyed on
+  `userWorkspaceId` or `userId` because those claims survive token refresh,
+  which an access token does not. `sub` is never a key: it is the application
+  id and would collapse every operator onto one cache entry.
 - member id to display name, in `resolveActor`.
 
 Both are bounded with oldest-first eviction, and both export a `forget*` so a

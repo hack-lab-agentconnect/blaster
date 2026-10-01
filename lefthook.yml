@@ -43,5 +43,12 @@ pre-push:
     typecheck:
       run: pnpm run typecheck
 
+    # Convex lint. Runs after typecheck rather than with the cheap structural
+    # gates because two of the plugin's rules (explicit-table-ids and
+    # no-collect-in-query) need TypeScript type information, so a type error in
+    # the backend should be reported as such rather than as a lint failure.
+    lint:
+      run: pnpm run lint
+
     test:
       run: pnpm run test

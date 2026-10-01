@@ -85,6 +85,8 @@ Blaster API       --Basic---->  discovery, token exchange, introspection
 Blaster API       --Bearer-->  record APIs (TWENTY_API_KEY)
 ```
 
+The same picture as a diagram: [diagrams/twenty-auth-paths.mmd](diagrams/twenty-auth-paths.mmd).
+
 ## The token flow, end to end
 
 ```

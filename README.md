@@ -259,6 +259,22 @@ echo "$DRAFT" | blaster sequence preview --recipients '[
 #   [skip] p-dnc   do-not-contact
 ```
 
+Drafts are also recorded locally, so a sequence can be built once and reused:
+
+```bash
+blaster sequence new "Spring outreach"   # interactive build, then recorded
+blaster sequence list                    # what is recorded
+blaster sequence show "Spring outreach"  # steps plus a per-recipient plan
+blaster sequence edit "Spring outreach"  # change the first message
+blaster sequence run "Spring outreach"   # dry run against the recorded draft
+blaster sequence rm "Spring outreach"    # forget it
+```
+
+Recorded drafts live in `.blaster/sequences.json`, next to the session file.
+`run` is a dry run over the recorded draft: it prints the compliance plan and
+names what the runner still needs. See [docs/sequencer.md](docs/sequencer.md)
+for what is finished, what is not, and the exact gaps.
+
 The same operations are on all three surfaces:
 
 | Surface | Validate | Dry run |
@@ -296,9 +312,12 @@ See [docs/diagrams/sequence-builder.mmd](docs/diagrams/sequence-builder.mmd).
   Twenty sharp edges, and the profile rules
 - [docs/naming-conventions.md](docs/naming-conventions.md) — the required
   directory structure
-- [docs/diagrams/](docs/diagrams/) — seven Mermaid diagrams covering the system
+- [docs/diagrams/](docs/diagrams/) — ten Mermaid diagrams covering the system
   overview, profile resolution, the breakdown and notification flow, the data
-  model, the send sequence, deployment, and the gates
+  model, the send sequence, the sequence builder, Twenty auth paths,
+  deployment, and the gates
+- [docs/sequencer.md](docs/sequencer.md) — the multi-step sequencer: what is
+  finished, what is not, and the exact gaps before a draft can run itself
 
 ## Diagrams
 

@@ -90,6 +90,12 @@ export interface EligibilityInput {
   doNotContact: boolean;
   hasReplied: boolean;
   sentInLastDay: number;
+  /**
+   * The messaging profile bound to the sending number. It wins over the
+   * country map, so an operator who bound a profile gets sends in countries
+   * that have no entry of their own.
+   */
+  numberProfileId?: string | null;
 }
 
 /** Injected so the machine stays pure: it reads no environment and no clock. */
@@ -138,6 +144,8 @@ export interface EnrollmentMachineInput {
   sentInLastDay: number;
   doNotContact: boolean;
   hasReplied: boolean;
+  /** The profile bound to the sending number, forwarded to eligibility. */
+  numberProfileId?: string | null;
 }
 
 export type EnrollmentEvent =

@@ -25,6 +25,8 @@ export interface DryRunRecipient {
   doNotContact?: boolean;
   hasReplied?: boolean;
   sentInLastDay?: number;
+  /** Profile bound to the sending number, which wins over the country map. */
+  numberProfileId?: string | null;
 }
 
 export interface DryRunResult {
@@ -40,6 +42,12 @@ export interface DryRunResult {
   quiet: boolean;
   approximateZone: boolean;
   nextAllowedAt: number | null;
+  /**
+   * The due time the machine settled on. A skip or a quiet-hours defer moves
+   * it, so the runner persists this rather than inventing its own retry delay;
+   * anything else would be a second, disagreeing scheduling policy.
+   */
+  nextDueAt: number | null;
   /** Why this recipient would not be sent to, or null when it would. */
   skipReason: string | null;
   skipDetail: string | null;
@@ -53,6 +61,19 @@ export interface DryRunInput {
   recipient: DryRunRecipient;
   now: number;
   evaluate: EligibilityEvaluator;
+  /**
+   * Persisted enrollment state, for driving a real enrollment rather than a
+   * hypothetical one. Absent means a fresh enrollment at cursor 0. The runner
+   * passes the row; the CLI preview omits it. Same machine, same transitions.
+   */
+  persisted?: {
+    cursor: number;
+    status: "active" | "paused";
+    nextDueAt: number | null;
+    lastSentAt: number | null;
+    attempts: number;
+    lastSkipReason: string | null;
+  };
 }
 
 /**
@@ -68,28 +89,30 @@ export function dryRunEnrollment(input: DryRunInput): DryRunResult {
   );
   const window = quietHoursWindow(timeZone, input.now, approximate);
 
+  const persisted = input.persisted;
   const actor = createActor(createEnrollmentMachine(), {
     input: {
       enrollmentId: input.enrollmentId,
       sequenceId: input.sequenceId,
-      cursor: 0,
+      cursor: persisted?.cursor ?? 0,
       steps: input.steps,
       fromNumber: input.fromNumber,
       to: input.recipient.to ?? null,
       country: input.recipient.country ?? null,
       timeZone,
       approximateZone: approximate,
-      nextDueAt: null,
-      lastSentAt: null,
-      status: "active",
-      attempts: 0,
-      lastSkipReason: null,
+      nextDueAt: persisted?.nextDueAt ?? null,
+      lastSentAt: persisted?.lastSentAt ?? null,
+      status: persisted?.status ?? "active",
+      attempts: persisted?.attempts ?? 0,
+      lastSkipReason: persisted?.lastSkipReason ?? null,
       evaluate: input.evaluate,
       nextAllowedSendAt: (from) => nextAllowedSendAt(timeZone, from, approximate),
       now: input.now,
       sentInLastDay: input.recipient.sentInLastDay ?? 0,
       doNotContact: input.recipient.doNotContact === true,
       hasReplied: input.recipient.hasReplied === true,
+      numberProfileId: input.recipient.numberProfileId ?? null,
     },
   });
   actor.start();
@@ -106,6 +129,12 @@ export function dryRunEnrollment(input: DryRunInput): DryRunResult {
     quiet: window.quiet,
     approximateZone: approximate,
     nextAllowedAt: window.quiet ? nextAllowedSendAt(timeZone, input.now, approximate) : input.now,
+    /**
+     * The due time the machine settled on. A skip or a quiet-hours defer moves
+     * it, so the runner persists this rather than inventing its own retry
+     * delay; anything else would be a second, disagreeing scheduling policy.
+     */
+    nextDueAt: snapshot.context.nextDueAt,
     skipReason: snapshot.context.lastSkipReason,
     skipDetail: null,
   };

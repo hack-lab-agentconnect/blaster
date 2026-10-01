@@ -39,7 +39,14 @@ export const conversationTables = {
     // The inbox is organised by the number we sent from, not by the peer, so
     // this is the index the list view actually queries. Pair lookup uses
     // pairKey and the "with this contact" view uses phoneNumber.
-    .index("blasterNumber", ["blasterNumber"]),
+    //
+    // latestMessageAt is the second field so the list reads as one ranged scan
+    // newest-first and can `take(limit)` its page, instead of reading every
+    // thread for the number and sorting in memory. That also means there is no
+    // separate single-field blasterNumber index: this one answers a query that
+    // constrains only blasterNumber, and a shorter index over its prefix would
+    // return the same rows while every insert wrote another copy of the table.
+    .index("blasterNumberLatestMessageAt", ["blasterNumber", "latestMessageAt"]),
 
   /**
    * One stored message, inbound or outbound.
@@ -68,5 +75,9 @@ export const conversationTables = {
   })
     .index("conversation", ["conversationId", "sentAt"])
     .index("providerEventId", ["providerEventId"])
-    .index("telnyxMessageId", ["telnyxMessageId"]),
+    .index("telnyxMessageId", ["telnyxMessageId"])
+    // Outbound sends by recipient and time, so the daily cap counts what this
+    // deployment actually sent. Additive index: backfilled by Convex, no
+    // migration, no existing query changes shape.
+    .index("to", ["to", "sentAt"]),
 };

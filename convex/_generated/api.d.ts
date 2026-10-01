@@ -24,9 +24,14 @@ import type * as schema_discovery from "../schema/discovery.js";
 import type * as schema_messaging from "../schema/messaging.js";
 import type * as schema_phone from "../schema/phone.js";
 import type * as schema_sequences from "../schema/sequences.js";
+import type * as sequence_actions from "../sequence/actions.js";
+import type * as sequence_helpers from "../sequence/helpers.js";
+import type * as sequence_index from "../sequence/index.js";
 import type * as sequence_model from "../sequence/model.js";
 import type * as sequence_mutations from "../sequence/mutations.js";
 import type * as sequence_queries from "../sequence/queries.js";
+import type * as sequence_types from "../sequence/types.js";
+import type * as sequence_utils from "../sequence/utils.js";
 
 import type {
   ApiFromModules,
@@ -51,9 +56,14 @@ declare const fullApi: ApiFromModules<{
   "schema/messaging": typeof schema_messaging;
   "schema/phone": typeof schema_phone;
   "schema/sequences": typeof schema_sequences;
+  "sequence/actions": typeof sequence_actions;
+  "sequence/helpers": typeof sequence_helpers;
+  "sequence/index": typeof sequence_index;
   "sequence/model": typeof sequence_model;
   "sequence/mutations": typeof sequence_mutations;
   "sequence/queries": typeof sequence_queries;
+  "sequence/types": typeof sequence_types;
+  "sequence/utils": typeof sequence_utils;
 }>;
 
 /**

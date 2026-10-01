@@ -1,6 +1,8 @@
 %% One message end to end, including the inbound leg. The verification branch is
 %% the honest part: signature verification is preferred, and the fallback says so
-%% in its own response rather than pretending to be equivalent.
+%% in its own response rather than pretending to be equivalent. An inbound reply
+%% stops the peer's enrollments in the same transaction that stores it, then
+%% notifies the owning members without ever failing the webhook.
 sequenceDiagram
   autonumber
   actor Caller
@@ -36,3 +38,12 @@ sequenceDiagram
 
   Hook->>Cvx: record the outcome
   Note over Hook,Tel: An unverifiable event is rejected rather<br/>than processed, so an unsigned request cannot<br/>move state.
+
+  Tel->>Hook: message.received
+  Hook->>Hook: verify, then resolve the owned destination
+  Hook->>Cvx: recordInboundMessage
+  Cvx->>Cvx: store the message + stop the peer's<br/>enrollments in one transaction
+  Cvx-->>Hook: stored, stoppedEnrollments
+  Hook->>Hook: notify the owning members<br/>(fire and forget, never fails the 200)
+  Hook-->>Tel: 200, stored
+  Note over Hook,Cvx: A redelivery returns early on providerEventId,<br/>so it can neither stop twice nor notify twice.

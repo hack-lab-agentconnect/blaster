@@ -121,16 +121,22 @@ convex/
 ├── http/
 │   └── <domain>.ts      # route registrations for one domain, no handlers inline
 └── <domain>/
-    ├── schema.ts        # (optional) table definitions, re-exported via schema/<domain>.ts
+    ├── types.ts         # (optional) validators and the types derived from them (R11)
+    ├── utils.ts         # (optional) pure functions: no ctx, no db, no I/O (R11)
+    ├── helpers.ts       # (optional) context-bound reads, called by queries.ts (R11)
     ├── model.ts         # context-bound logic: takes ctx, calls core helpers, writes nothing else
-    ├── queries.ts       # thin wrappers over model.ts
+    ├── queries.ts       # thin wrappers over model.ts and helpers.ts
     ├── mutations.ts     # thin wrappers over model.ts
     ├── actions.ts       # external side effects only (network, AI); no db writes
-    └── workflow.ts      # durable execution; deterministic body, I/O only inside steps
+    ├── workflow.ts      # durable execution; deterministic body, I/O only inside steps
+    └── index.ts         # barrel: types and constants only, never functions (R12)
 ```
 
 Only create the files a domain needs. A domain with no external calls has no
-`actions.ts`; a domain with no long-lived process has no `workflow.ts`.
+`actions.ts`; a domain with no long-lived process has no `workflow.ts`; a domain
+whose argument validators live inline in its function files has no `types.ts`.
+The four primitives in R11 are exempt from that judgement call: `types.ts` and
+`index.ts` are required for every domain, `utils.ts` and `helpers.ts` are not.
 
 ### R5. Function files are boundaries; `model.ts` holds reusable domain logic
 `queries.ts`, `mutations.ts`, and `actions.ts` are Convex function boundary
@@ -204,6 +210,62 @@ Per F2, a schema itself is optional in Convex. This repository uses schema
 validation, so a root `schema.ts` with a default export is required here.
 A project without schema validation would not need this rule.
 
+### R11. Domain primitives: types, utils, helpers, and one definition per shape
+Each domain owns four primitives with distinct responsibilities. The point of
+separating them is that each one has a dependency direction, so a reader can
+tell from the imports alone what a file is allowed to know:
+
+| File | Owns | May import |
+| --- | --- | --- |
+| `types.ts` | Argument validators and the types derived from them with `Infer` | `convex/values`, pure core types |
+| `utils.ts` | Pure functions: no `ctx`, no database, no I/O | core, `types.ts` |
+| `helpers.ts` | Context-bound **reads** | `_generated` types, `utils.ts`, `types.ts` |
+| `model.ts` | Context-bound **writes** and domain transitions | `_generated` types, `utils.ts`, `helpers.ts`, `types.ts`, core |
+
+Three rules make this worth having:
+
+1. **A validator is defined once.** A field shape that appears in a schema, an
+   action argument, and a helper signature is declared once in `types.ts` and
+   imported everywhere else. `Infer<typeof validator>` gives the TypeScript
+   type, so the validator and its type cannot drift apart — there is no second
+   union to keep in sync.
+2. **No inline type or cast where a name exists.** If a function file needs a
+   union, an argument object, or a return shape, it imports the name from
+   `types.ts`. An inline `as` cast at a call site is the signal that a type is
+   missing, not a way to make it compile. Where a Convex type and a core type
+   must agree, they are checked by a compile-time equality assertion rather than
+   by a comment asking someone to remember.
+3. **`helpers.ts` holds the read logic, and `queries.ts` stays a boundary.**
+   Convex actions have no direct database access, so a runner action *must*
+   reach data through `ctx.runQuery`. That is a platform constraint, not a
+   design smell, and the response is one thin query over logic in `helpers.ts`
+   — not the read logic inlined into the action, and not `helpers.ts` reaching
+   for `ctx.db` from somewhere it cannot.
+
+### R12. The domain barrel re-exports types and constants, never functions
+Every domain has an `index.ts` that is the domain's public interface for
+anything that is not a Convex function:
+
+```ts
+export { enrollmentStatusValidator } from "./types.js";
+export type { EnrollmentStatus, ApplyScheduleArgs } from "./types.js";
+```
+
+Rules, in order of severity:
+
+- **No `export *`.** Star re-exports are banned by R9 for functions, and are
+  banned here for the same underlying reason: a barrel must state exactly what
+  it offers. A star export also silently picks up a value that could become a
+  function reference.
+- **No functions.** `queries.ts`, `mutations.ts`, `actions.ts`, and
+  `workflow.ts` are addressed by path (F3, R8). Re-exporting one through
+  `index.ts` creates a second address for it.
+- **No cross-domain barrels.** There is deliberately no root `convex/types.ts`
+  that re-exports every domain, because it would have to use `export *` and
+  would make every domain's interface depend on all the others. A consumer
+  imports from the domain it actually depends on:
+  `import type { EnrollmentStatus } from "./sequence/index.js"`.
+
 ## Recommendations (guidance, not gated)
 
 These are documented judgment calls. The gate does not check them because no
@@ -242,8 +304,10 @@ checkable without understanding intent:
   this repository uses schema validation);
 - a root `http.ts`, when present, default-exports the router; a root
   `crons.ts`, when present, builds its schedule with `cronJobs()`;
-- no `export *` in any `convex/` file (R9 — the duplicate-address hazard);
-- no `api.*` function references inside `convex/` (R8).
+- no `export *` in any `convex/` file (R9, R12 — the duplicate-address hazard);
+- no `api.*` function references inside `convex/` (R8);
+- every domain directory has an `index.ts` that re-exports no function module
+  (R12).
 
 Content checks run against code with comments and string literals stripped, so
 a commented-out line or a mention in a string neither flags nor hides a real

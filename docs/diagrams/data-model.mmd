@@ -12,6 +12,12 @@ flowchart LR
     MP[("messagingProfiles<br/>country to profile id<br/>10DLC campaign, alpha sender<br/>indexed by country")]
     NT[("notifications<br/>ruleId, severity, message<br/>stateKey, deliveredAt<br/>indexed by stateKey")]
     DR[("discoveryRuns<br/>status, maxCostUsd, spentUsd<br/>indexed by startedAt")]
+    SQ[("sequences<br/>name, status, fromNumber<br/>campaignId, options<br/>indexed by status, fromNumber")]
+    SS[("sequenceSteps<br/>text, delayHours, isStop<br/>ordered by `order`")]
+    SE[("sequenceEnrollments<br/>cursor, status, nextDueAt<br/>ownerMemberId, lastSkipReason")]
+    PN[("phoneNumbers<br/>E.164 ledger, Telnyx metadata<br/>indexed by phoneNumber")]
+    CV[("conversations<br/>pairKey, summary fields<br/>indexed by pairKey")]
+    MS[("messages<br/>direction, body, status<br/>dedupe on providerEventId")]
   end
 
   READ["Read"] --> TL
@@ -26,6 +32,13 @@ flowchart LR
   RULES["evaluateNotifications"] --> NT
   NT --> KEY["stateKey decides whether<br/>a notification is new"]
   TREG["treg discovery run"] --> DR
+
+  SQ --> SS
+  SQ --> SE
+  SE -. "cursor + status<br/>drive the statechart" .-> SS
+  PN -. "sync key is the E.164 number" .-> TPH
+  CV --> MS
+  MS -. "a reply stops enrollments<br/>in the same transaction" .-> SE
 
   NOTE["A relation declared as campaignId is written to Twenty as campaignIdId.<br/>Cursors are ignored, so paging walks id ascending instead."]:::note
   twenty -.-> NOTE

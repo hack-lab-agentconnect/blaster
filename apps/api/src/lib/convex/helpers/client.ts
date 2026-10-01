@@ -36,6 +36,11 @@ export interface InboundRecordInput {
   telnyxMessageId?: string;
   providerEventId?: string;
   receivedAt?: number;
+  /**
+   * True when the sender unsubscribed. Decided by the caller with the
+   * deterministic classifier; the mutation records what it is told.
+   */
+  optedOut?: boolean;
   media?: Array<{ url: string; contentType?: string; size?: number }>;
 }
 
@@ -50,6 +55,8 @@ export interface StoppedEnrollment {
   enrollmentId: string;
   sequenceId: string;
   status: string;
+  /** The responsible member, when one was recorded at enroll time. */
+  ownerMemberId: string | null;
 }
 
 export type InboundRecordResult =

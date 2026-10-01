@@ -10,6 +10,9 @@ import { v } from "convex/values";
 export const listPhoneNumbers = query({
   args: {},
   handler: async (ctx) => {
+    // phoneNumbers is a bounded config table: one row per number this
+    // deployment bought, so every caller of this list is asking for all of them.
+    // eslint-disable-next-line @convex-dev/no-collect-in-query
     const rows = await ctx.db.query("phoneNumbers").collect();
     return rows.sort((a, b) => a.phoneNumber.localeCompare(b.phoneNumber));
   },

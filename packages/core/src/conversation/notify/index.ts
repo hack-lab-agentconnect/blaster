@@ -36,6 +36,13 @@ export interface ReplyNotification {
   preview: string;
   /** How many sequences this reply just stopped. Zero means it was already stopped. */
   stoppedCount: number;
+  /**
+   * The responsible members, taken from the stopped enrollments' owner fields.
+   * When present and non-empty, only these members are notified; otherwise the
+   * fan-out falls back to every member with a key. The routing lives in the
+   * record, not outside the workflow.
+   */
+  targetMemberIds?: string[];
   /** A link back to the thread, so the tap lands somewhere useful. */
   url?: string;
 }
@@ -88,7 +95,10 @@ export async function broadcastReply(
     return result;
   }
 
-  const withKey = members.filter((member) => Boolean(member.barkKey));
+  const targets = new Set(notification.targetMemberIds ?? []);
+  const addressed =
+    targets.size > 0 ? members.filter((member) => targets.has(member.id)) : members;
+  const withKey = addressed.filter((member) => Boolean(member.barkKey));
   result.skippedNoKey = members.length - withKey.length;
   if (withKey.length === 0) return result;
 

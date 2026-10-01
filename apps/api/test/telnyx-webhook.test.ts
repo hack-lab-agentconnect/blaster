@@ -33,7 +33,12 @@ let statusResult: Record<string, unknown> = { status: "applied", messageId: "msg
  * Convex deployment. The real mutation stops the enrollments in the same
  * transaction that stores the message; the app only learns how many.
  */
-let stoppedEnrollments: Array<{ enrollmentId: string; sequenceId: string; status: string }> = [];
+let stoppedEnrollments: Array<{
+  enrollmentId: string;
+  sequenceId: string;
+  status: string;
+  ownerMemberId: string | null;
+}> = [];
 
 vi.mock("../src/lib/convex/index.ts", () => ({
   recordInboundMessage: async (input: Record<string, unknown>) => {
@@ -160,8 +165,8 @@ describe("POST /api/webhooks/telnyx", () => {
 
   test("a reply reports the sequence steps it stopped", async () => {
     stoppedEnrollments = [
-      { enrollmentId: "e-1", sequenceId: "s-1", status: "replied" },
-      { enrollmentId: "e-2", sequenceId: "s-1", status: "replied" },
+      { enrollmentId: "e-1", sequenceId: "s-1", status: "replied", ownerMemberId: "m-1" },
+      { enrollmentId: "e-2", sequenceId: "s-1", status: "replied", ownerMemberId: null },
     ];
     const response = await postSigned(inboundEvent("+17735550002"));
     const body = (await response.json()) as Record<string, unknown>;
@@ -175,6 +180,34 @@ describe("POST /api/webhooks/telnyx", () => {
     const body = (await response.json()) as Record<string, unknown>;
     expect(response.status).toBe(200);
     expect(body).toMatchObject({ stored: true, stoppedEnrollments: 0 });
+  });
+
+  test("a STOP reply is recorded as an opt-out, not a plain reply", async () => {
+    const stop = JSON.stringify({
+      data: {
+        event_type: "message.received",
+        id: "evt-stop",
+        occurred_at: "2024-01-15T20:16:07.588+00:00",
+        payload: {
+          id: "msg-stop",
+          text: "STOP",
+          from: { phone_number: "+13125550001" },
+          to: [{ phone_number: "+17735550002" }],
+          received_at: "2024-01-15T20:16:07.503+00:00",
+        },
+      },
+      meta: { attempt: 1 },
+    });
+    const response = await postSigned(stop);
+    expect(response.status).toBe(200);
+    // The classifier decides in Hono; the mutation records what it is told.
+    // A STOP keyword is the one case allowed to stop harder than a reply.
+    expect(convexCalls[0]).toMatchObject({ optedOut: true });
+  });
+
+  test("an ordinary reply is not marked as an opt-out", async () => {
+    await postSigned(inboundEvent("+17735550002"));
+    expect(convexCalls[0]).not.toMatchObject({ optedOut: true });
   });
 
   test("an unsigned or tampered event is refused before anything is stored", async () => {

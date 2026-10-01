@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { env } from "../_generated/server.js";
 
 /**
  * Phone-number storage helpers.
@@ -50,7 +51,5 @@ export type PhoneInput = {
 };
 
 export function telnyxKey(): string {
-  const key = process.env.TELNYX_API_KEY;
-  if (!key) throw new Error("TELNYX_API_KEY is not configured on the Convex deployment");
-  return key;
+  return env.TELNYX_API_KEY;
 }

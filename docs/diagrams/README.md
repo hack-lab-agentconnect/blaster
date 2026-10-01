@@ -13,13 +13,16 @@ and in [architecture.md](../architecture.md).
 | [data-model.mmd](data-model.mmd) | Where state lives: Twenty as the system of record, Convex holding only what Twenty cannot represent |
 | [send-message-sequence.mmd](send-message-sequence.mmd) | One message end to end, including the inbound webhook and the honest verification branch |
 | [prospect-batch-send.mmd](prospect-batch-send.mmd) | A prospect batch: filters as definitions, eligibility split before the send, a per-recipient outcome, and the best-effort lifecycle writes |
+| [sequence-builder.mmd](sequence-builder.mmd) | Building a sequence and deciding who may receive it: validate, persist, dry run, and the send loop |
+| [twenty-auth-paths.mmd](twenty-auth-paths.mmd) | The wall in front of Twenty and which credential opens what; prose version in [identity.md](../identity.md) |
 | [deployment-and-gates.mmd](deployment-and-gates.mmd) | What ships to railcode.dev and Convex Cloud, and the pre-push gates in the order they run |
 
 ## Rendering
 
 Any Mermaid renderer takes these directly. GitHub renders fenced `mermaid`
 blocks, so a diagram embedded in a Markdown file is the same source as the file
-here rather than a second copy that can drift.
+here rather than a second copy that can drift. Ten diagrams live here; if the
+table above lists fewer, the table is stale, not the directory.
 
 ## Keeping them honest
 
