@@ -210,6 +210,28 @@ export const runEnrollmentStep = internalAction({
       recipientCountry: enrollment.country ?? null,
       numberProfileId: sequence.numberProfileId ?? null,
     });
+
+    // Capacity is claimed only once the send is certain to be attempted: after
+    // the number, the profile and the eligibility decision all say yes, and
+    // immediately before the provider call. Claiming earlier would spend tokens
+    // on sends that never happen.
+    const capacity = await ctx.runMutation(internal.sequence.mutations.claimSendCapacity, {
+      fromNumber: sequence.fromNumber,
+    });
+    if (!capacity.ok) {
+      // A skip, not a failure: the step is still owed and `recordStep` leaves the
+      // cursor alone, so the enrollment stays due and the next tick tries again
+      // once capacity has recovered. Failing it instead would park the
+      // enrollment for a human over a limit we set ourselves.
+      await ctx.runMutation(internal.sequence.mutations.recordStep, {
+        enrollmentId: enrollment._id,
+        outcome: "skipped",
+        steps,
+        skipReason: "send-capacity-exhausted",
+      });
+      return { kind: "sentinel", reason: "send-capacity-exhausted" };
+    }
+
     try {
       const sent = await sendMessage({
         apiKey,

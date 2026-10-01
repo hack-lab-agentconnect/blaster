@@ -40,6 +40,7 @@ export async function askText(
 export async function askSelect(
   message: string,
   options: Array<{ value: string; label: string; hint?: string }>,
+  opts: { initialValue?: string } = {},
 ): Promise<string | null> {
   const value = await clack.select({
     message,
@@ -48,6 +49,7 @@ export async function askSelect(
       label: option.label,
       hint: option.hint,
     })),
+    initialValue: opts.initialValue,
   });
   if (clack.isCancel(value)) return null;
   return value;

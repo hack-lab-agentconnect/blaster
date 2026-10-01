@@ -304,6 +304,61 @@ than silently losing the message.
 
 See [docs/diagrams/sequence-builder.mmd](docs/diagrams/sequence-builder.mmd).
 
+## Authentication is checked before any command does work
+
+**Rule: no command may read a credential it has not authenticated. The only
+exemptions are the commands that print their own help.**
+
+This is not a style preference. A stored access token expires on its own, and the
+failure mode of ignoring that is specific and nasty: the command sends the stale
+token, the API rejects it, and the operator is told they are signed out while
+sitting in front of a working session with a valid refresh token in
+`.blaster/sessions.json`. That is not a hypothetical — `blaster inbox` and
+`blaster sequence` both shipped exactly that bug.
+
+### The three tiers
+
+| Tier | Commands | What must be true before any work happens |
+| --- | --- | --- |
+| **Operator session** | `send`, `inbox list`, `inbox show`, `sequence` | A session exists for a configured API **and `ensureLiveSession(root, apiUrl)` returned one**. Never read `home.sessions[apiUrl].accessToken` directly. |
+| **Service credential** | `breakdown`, `prospects`, `numbers *`, `phones *`, `conversation *` | `twentyOrFail()` has confirmed `TWENTY_BASE_URL` and `TWENTY_API_KEY` are present. These do not use the operator session and must not pretend to. |
+| **No credential** | `help`, `--help`, `capabilities`, `login`, `logout`, `whoami`, and any subcommand's usage text | Nothing. These must keep working when signed out, or an operator cannot find out how to sign in. |
+
+`login`, `logout`, and `whoami` are exempt because they *are* the authentication
+surface: `whoami` has to be able to report that there is no session, and `logout`
+has to be able to remove one.
+
+### What "checked" means
+
+1. **Resolve, then use.** Call `ensureLiveSession` (or `twentyOrFail`) and use
+   what it returns. Reading a credential out of storage and handing it to a
+   client is the bug this rule exists to prevent.
+2. **Refresh, don't reject.** `ensureLiveSession` validates a live token and
+   renews an expired one from the stored refresh token, persisting the result. A
+   recoverable session must never present as a signed-out operator.
+3. **Offer the sign-in when there is somewhere to sign in to.** When an API URL
+   is configured but no live session can be produced, an interactive command
+   offers `loginMain` rather than only printing an error. With no API URL
+   configured at all there is nowhere to sign in to, so say that instead.
+4. **Fail closed, with the exit code intact.** An authentication failure returns
+   non-zero and writes nothing. A submenu or wrapper must not swallow that code
+   and exit 0 — a scripted caller would see success for a run that did nothing.
+5. **Resolve once per command.** Cache the resolved client on the command
+   context. An up-front check and a later lookup should not each pay for the same
+   validation round trip.
+
+### Where the check happens
+
+At the **start** of the command, before the first prompt. An interactive command
+that needs a session resolves it before asking anything, so an operator finds out
+they are signed out immediately rather than after typing a name into a wizard.
+The scripted paths (`--from`, `--json`, explicit flags) must still work without a
+session where they never needed one: recording a local draft touches no account.
+
+See `ensureLiveSession` in `packages/blaster-cli/src/cli/login.ts`, and
+`liveClient` in `packages/blaster-cli/src/cli/sequence.ts` for the resolved-once
+pattern.
+
 ## Documentation
 
 - [docs/README.md](docs/README.md) — authored versus vendored, and the

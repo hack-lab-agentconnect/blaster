@@ -18,7 +18,7 @@ import {
   type ConversationMessageRow,
   type ConversationSummary,
 } from "@blaster/core";
-import { loadHome, type SessionRecord } from "./login.ts";
+import { ensureLiveSession, loadHome } from "./login.ts";
 
 
 export const INBOX_USAGE = `Usage: blaster inbox list|show
@@ -50,8 +50,15 @@ const MAX_LIMIT = 200;
  * A session is required rather than optional: the inbox carries prospect phone
  * numbers and message bodies, and the API checks the token on every call. There
  * is no anonymous path to fall back to, which is the point.
+ *
+ * Resolved through `ensureLiveSession` rather than read off the stored record,
+ * because a stored access token expires on its own and a stored refresh token is
+ * what renews it. Handing the stored token straight to the client makes a
+ * perfectly recoverable session look like a rejected one, which is how this
+ * command used to answer "a live operator token is required" for an operator who
+ * was signed in the whole time.
  */
-function clientFromSession(flags: CliFlags, root: string): BlasterApiClient | number {
+async function clientFromSession(flags: CliFlags, root: string): Promise<BlasterApiClient | number> {
   const home = loadHome(root);
   const explicit = typeof flags.get("api-url") === "string" ? (flags.get("api-url") as string) : null;
   const apiUrl = explicit ?? home.config.apiUrl ?? Object.keys(home.sessions)[0] ?? null;
@@ -59,9 +66,9 @@ function clientFromSession(flags: CliFlags, root: string): BlasterApiClient | nu
     console.error('blaster inbox: no signed-in API. Run "blaster login" first, or pass --api-url.');
     return 1;
   }
-  const session: SessionRecord | undefined = home.sessions[apiUrl];
+  const session = await ensureLiveSession(root, apiUrl);
   if (!session) {
-    console.error(`blaster inbox: no session for ${apiUrl}. Run "blaster login" first.`);
+    console.error(`blaster inbox: no live session for ${apiUrl}. Run "blaster login" first.`);
     return 1;
   }
   return createBlasterApiClient({ baseUrl: apiUrl, accessToken: session.accessToken });
@@ -122,7 +129,7 @@ export async function inboxList(
   json: boolean,
   root: string = process.cwd(),
 ): Promise<number> {
-  const client = clientFromSession(flags, root);
+  const client = await clientFromSession(flags, root);
   if (typeof client === "number") return client;
   const limitRaw = flags.get("limit");
   const limit = typeof limitRaw === "string" ? Math.min(Math.max(Number(limitRaw) || DEFAULT_LIMIT, 1), MAX_LIMIT) : DEFAULT_LIMIT;
@@ -147,13 +154,16 @@ export async function inboxShow(
   json: boolean,
   root: string = process.cwd(),
 ): Promise<number> {
-  const client = clientFromSession(flags, root);
-  if (typeof client === "number") return client;
+  // Checked before the session is resolved. Validating the argument costs
+  // nothing, and a malformed invocation should not spend a network round trip
+  // finding that out.
   const id = rest[0];
   if (!id) {
     console.error(`blaster inbox show needs a conversation id\n${INBOX_USAGE}`);
     return 1;
   }
+  const client = await clientFromSession(flags, root);
+  if (typeof client === "number") return client;
   const limitRaw = flags.get("limit");
   const limit = typeof limitRaw === "string" ? Number(limitRaw) || undefined : undefined;
   try {

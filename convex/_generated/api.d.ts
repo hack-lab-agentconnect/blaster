@@ -19,6 +19,7 @@ import type * as phoneNumbers_actions from "../phoneNumbers/actions.js";
 import type * as phoneNumbers_model from "../phoneNumbers/model.js";
 import type * as phoneNumbers_mutations from "../phoneNumbers/mutations.js";
 import type * as phoneNumbers_queries from "../phoneNumbers/queries.js";
+import type * as rateLimit from "../rateLimit.js";
 import type * as schema_conversations from "../schema/conversations.js";
 import type * as schema_discovery from "../schema/discovery.js";
 import type * as schema_messaging from "../schema/messaging.js";
@@ -51,6 +52,7 @@ declare const fullApi: ApiFromModules<{
   "phoneNumbers/model": typeof phoneNumbers_model;
   "phoneNumbers/mutations": typeof phoneNumbers_mutations;
   "phoneNumbers/queries": typeof phoneNumbers_queries;
+  rateLimit: typeof rateLimit;
   "schema/conversations": typeof schema_conversations;
   "schema/discovery": typeof schema_discovery;
   "schema/messaging": typeof schema_messaging;
@@ -94,4 +96,5 @@ export declare const internal: FilterApi<
 
 export declare const components: {
   agent: import("@convex-dev/agent/_generated/component.js").ComponentApi<"agent">;
+  rateLimiter: import("@convex-dev/rate-limiter/_generated/component.js").ComponentApi<"rateLimiter">;
 };

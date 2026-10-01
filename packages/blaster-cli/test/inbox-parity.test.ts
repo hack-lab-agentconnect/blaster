@@ -78,7 +78,11 @@ beforeEach(() => {
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
       requests.push({ url: String(url), auth: new Headers(init?.headers).get("Authorization") });
-      if (String(url).includes("/messages")) return new Response(JSON.stringify({ messages: MESSAGES }));
+      const path = String(url);
+      // The CLI authenticates before it reads anything, so the session check is
+      // part of the route surface rather than a detail of one command.
+      if (path.includes("/auth/me")) return new Response(JSON.stringify({ username: "operator@example.com", scope: "api" }));
+      if (path.includes("/messages")) return new Response(JSON.stringify({ messages: MESSAGES }));
       return new Response(JSON.stringify({ conversations: CONVERSATIONS }));
     }),
   );
@@ -106,8 +110,13 @@ describe("blaster inbox list", () => {
   test("sends the operator token and the filters the caller asked for", async () => {
     const code = await inboxList(flags([["number", "+1 470 555 0199"], ["limit", "5"]]), false, root);
     expect(code).toBe(0);
+    // The session is authenticated before anything is read, so that call comes
+    // first. It is part of the route surface, not a detail of one command.
+    expect(new URL(requests[0]!.url).pathname).toBe("/api/auth/me");
     expect(requests[0]?.auth).toBe("Bearer op-token");
-    const url = new URL(requests[0]!.url);
+    const read = requests.find((row) => row.url.includes("/api/conversations"))!;
+    expect(read.auth).toBe("Bearer op-token");
+    const url = new URL(read.url);
     expect(url.pathname).toBe("/api/conversations");
     expect(url.searchParams.get("number")).toBe("+1 470 555 0199");
     expect(url.searchParams.get("limit")).toBe("5");
@@ -143,7 +152,8 @@ describe("blaster inbox show", () => {
   test("reads one thread and needs no positional guess", async () => {
     const code = await inboxShow(["k171855q923bdkx00je595qmmn8fa832"], flags([]), false, root);
     expect(code).toBe(0);
-    expect(requests[0]?.url).toContain("/api/conversations/k171855q923bdkx00je595qmmn8fa832/messages");
+    // Skipped past the session check, which now precedes every read.
+    expect(requests.some((row) => row.url.includes("/api/conversations/k171855q923bdkx00je595qmmn8fa832/messages"))).toBe(true);
     expect(output.join("\n")).toContain("prospect");
   });
 

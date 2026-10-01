@@ -56,7 +56,7 @@ import {
 import { LOGOUT_USAGE, WHOAMI_USAGE, loginMain, logoutMain, whoamiMain } from "./login.ts";
 import { INBOX_USAGE, inboxList, inboxShow, type CliFlags } from "./inbox.ts";
 import { SEND_USAGE, sendMain } from "./send.ts";
-import { sequenceMain, type SequenceContext } from "./sequence.ts";
+import { SEQUENCE_USAGE, sequenceMain, type SequenceContext } from "./sequence.ts";
 
 interface Parsed {
   command: string | undefined;
@@ -292,9 +292,15 @@ async function main(): Promise<number> {
       if (action !== undefined && known.includes(action)) {
         return await sequenceMain(sequenceContext(flags, json), action, positional[1]);
       }
-      if (action === "help" || action === undefined) {
+      if (action === "help") {
         console.log(SEQUENCE_USAGE);
         return 0;
+      }
+      // No action at all is handed to sequenceMain rather than answered here: it
+      // opens the menu in a terminal, and sequenceMain is the one place that
+      // decides between a prompt and the usage text.
+      if (action === undefined) {
+        return await sequenceMain(sequenceContext(flags, json), action, positional[1]);
       }
       console.error(`blaster sequence: unknown action "${action}"\n${SEQUENCE_USAGE}`);
       return 1;
@@ -306,37 +312,6 @@ async function main(): Promise<number> {
     }
   }
 }
-
-const SEQUENCE_USAGE = `Usage: blaster sequence <action> [name]
-
-  new [name]     Build a draft interactively, check it, and record it
-  list           What is recorded
-  show <name>    The steps, plus a per-recipient plan
-  edit <name>    Change the first message
-  run <name>     Dry run. Says what is not wired up, then shows the plan
-  rm <name>      Forget a draft
-
-  validate       Check a JSON draft and print every problem at once
-  preview        Dry run a JSON draft against --recipients
-
-Drafts live in .blaster/sequences.json. They are local working material: a draft
-becomes real when the runner picks it up, and the runner does not exist yet.
-\`blaster sequence run\` says so rather than pretending otherwise.
-
-Add --recipients '[{"id":"1","to":"+15551234567","stateCode":"NY"}]' to any
-read-only action for a per-recipient compliance plan.
-
-A draft as JSON on stdin or via --draft, for example:
-  {
-    "name": "Spring outreach",
-    "fromNumber": "+353871234567",
-    "campaignId": "<twenty campaign id>",
-    "options": { "stopOnReply": true, "dailyCapPerRecipient": 2 },
-    "steps": [
-      { "text": "First message", "delayHours": 0, "isStop": false },
-      { "text": "Follow up in two days", "delayHours": 48, "isStop": false }
-    ]
-  }`;
 
 /** Everything `blaster sequence` needs, injected so tests can drive it. */
 function sequenceContext(
