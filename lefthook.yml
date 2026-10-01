@@ -15,6 +15,12 @@ pre-push:
     secrets-self-test:
       run: pnpm run check:secrets:self-test
 
+    # The push must state its objective. goal.md has to be a current outline:
+    # updated within 20 minutes, naming the commit message, the files changed,
+    # and a tick-box task list. Refresh it with `pnpm run goal:stamp`.
+    goal-outline:
+      run: pnpm run check:goal
+
     # Backend structure: kebab-case names, a domain index.ts, a helpers
     # barrel, and named exports so a domain's surface is readable. The glob
     # covers every backend root the gate checks, so a structural change in
