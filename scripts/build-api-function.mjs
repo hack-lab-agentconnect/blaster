@@ -29,10 +29,17 @@ import { dirname } from "node:path";
 // bundle made two builders fight over the route (the tracer chokes on this
 // repo's explicit `.ts` specifiers and the route silently vanished from some
 // builds while working in others). The underscore keeps zero-config
-// detection off the source so `handler.js` is the only candidate, on every
-// toolchain version. `handler.js` cannot collide with `_entry.ts` the way
-// `index.js` would have with `index.ts`.
-const OUTFILE = "api/handler.js";
+// detection off the source. The same invisibility applies to anything
+// generated mid-build: Vercel detects candidates from pre-build source, so
+// writing the bundle straight to `api/handler.js` meant git-triggered builds
+// attached nothing to the lambda (empty output, 404 on every /api route)
+// while CLI uploads carrying a local bundle worked. The bundle therefore
+// goes to the underscore-prefixed `_bundle.js`, and the tracked
+// `api/handler.js` shim beside it is the only candidate; Vercel's builder
+// traces the shim's import after this script has written the bundle.
+// `_bundle.js` cannot collide with `_entry.ts` the way `index.js` would have
+// with `index.ts`.
+const OUTFILE = "api/_bundle.js";
 
 const result = await build({
   entryPoints: ["api/_entry.ts"],
