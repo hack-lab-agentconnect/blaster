@@ -109,7 +109,7 @@ export function ConvexStatus() {
     }
     const client = new ConvexReactClient(url);
     client
-      .query("blaster:environment" as never, {} as never)
+      .query("blaster/queries:environment" as never, {} as never)
       .then(() => {
         if (!cancelled) setStatus("Convex deployment is reachable.");
       })

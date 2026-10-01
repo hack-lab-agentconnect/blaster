@@ -67,7 +67,7 @@ export async function recordInboundMessage(input: InboundRecordInput): Promise<I
   const client = convexClient();
   if (!client) return { status: "not-configured" };
   try {
-    return await client.mutation(api.conversations.recordInboundMessage, input);
+    return await client.mutation(api.conversations.mutations.recordInboundMessage, input);
   } catch (error) {
     return { status: "failed", error: error instanceof Error ? error.message : String(error) };
   }
@@ -88,7 +88,7 @@ export async function applyOutboundStatus(
   const client = convexClient();
   if (!client) return { status: "not-configured" };
   try {
-    return await client.mutation(api.conversations.applyOutboundStatus, {
+    return await client.mutation(api.conversations.mutations.applyOutboundStatus, {
       telnyxMessageId,
       status,
       ...(eventType ? { eventType } : {}),
@@ -121,7 +121,7 @@ export async function listConversations(query: ConversationQuery = {}): Promise<
   const client = convexClient();
   if (!client) return { status: "not-configured" };
   try {
-    return { status: "ok", rows: await client.query(api.conversations.listConversations, query) };
+    return { status: "ok", rows: await client.query(api.conversations.queries.listConversations, query) };
   } catch (error) {
     return { status: "failed", error: error instanceof Error ? error.message : String(error) };
   }
@@ -143,7 +143,7 @@ export async function conversationMessages(
   try {
     return {
       status: "ok",
-      rows: await client.query(api.conversations.conversationMessages, {
+      rows: await client.query(api.conversations.queries.conversationMessages, {
         conversationId: conversationId as Id<"conversations">,
         ...(limit ? { limit } : {}),
       }),

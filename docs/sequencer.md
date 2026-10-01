@@ -17,7 +17,7 @@ are going out, and discovers otherwise from a prospect.
 | **Quiet hours** | `pipeline/sequence/helpers/quiet-hours.ts` | done, tested |
 | Dry run of the real statechart | `pipeline/sequence/helpers/dry-run.ts` | done, tested |
 | Draft storage, and the CLI that edits it | `blaster sequence` | done, 17 tests |
-| Persistence | `convex/sequence.ts` | tables and functions exist |
+| Persistence | `convex/sequence/` | tables and functions exist |
 | **The runner** | — | **does not exist** |
 
 ## The exact crack
@@ -90,7 +90,7 @@ reading the database.
 
 ### A send is claimed before it is attempted
 
-`convex/sequence.ts` has a comment claiming that recording the step transition in
+`convex/sequence/mutations.ts` has a comment claiming that recording the step transition in
 one place "makes the sequence resumable after a failure without double-sending".
 **That is backwards.** It is called *after* the send, so a crash or a timeout
 between the two is precisely a double send. This is the dominant cause of

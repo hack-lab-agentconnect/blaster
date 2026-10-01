@@ -23,6 +23,10 @@ pre-push:
       glob: "{packages/*/src/**/*.ts,apps/api/src/**/*.ts,lib/**/*.ts}"
       run: pnpm run check:naming
 
+    convex-naming:
+      glob: "{convex/**/*.ts,docs/convex-naming-conventions.md}"
+      run: pnpm run check:convex
+
     env-manifest:
       glob: "{config/env-vars.json,packages/**/*.ts,apps/**/*.ts,convex/**/*.ts}"
       run: pnpm run check:env

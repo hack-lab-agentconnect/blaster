@@ -8,11 +8,25 @@
  * @module
  */
 
-import type * as blaster from "../blaster.js";
-import type * as conversations from "../conversations.js";
+import type * as blaster_mutations from "../blaster/mutations.js";
+import type * as blaster_queries from "../blaster/queries.js";
+import type * as conversations_model from "../conversations/model.js";
+import type * as conversations_mutations from "../conversations/mutations.js";
+import type * as conversations_queries from "../conversations/queries.js";
 import type * as http from "../http.js";
-import type * as phoneNumbers from "../phoneNumbers.js";
-import type * as sequence from "../sequence.js";
+import type * as http_blaster from "../http/blaster.js";
+import type * as phoneNumbers_actions from "../phoneNumbers/actions.js";
+import type * as phoneNumbers_model from "../phoneNumbers/model.js";
+import type * as phoneNumbers_mutations from "../phoneNumbers/mutations.js";
+import type * as phoneNumbers_queries from "../phoneNumbers/queries.js";
+import type * as schema_conversations from "../schema/conversations.js";
+import type * as schema_discovery from "../schema/discovery.js";
+import type * as schema_messaging from "../schema/messaging.js";
+import type * as schema_phone from "../schema/phone.js";
+import type * as schema_sequences from "../schema/sequences.js";
+import type * as sequence_model from "../sequence/model.js";
+import type * as sequence_mutations from "../sequence/mutations.js";
+import type * as sequence_queries from "../sequence/queries.js";
 
 import type {
   ApiFromModules,
@@ -21,11 +35,25 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  blaster: typeof blaster;
-  conversations: typeof conversations;
+  "blaster/mutations": typeof blaster_mutations;
+  "blaster/queries": typeof blaster_queries;
+  "conversations/model": typeof conversations_model;
+  "conversations/mutations": typeof conversations_mutations;
+  "conversations/queries": typeof conversations_queries;
   http: typeof http;
-  phoneNumbers: typeof phoneNumbers;
-  sequence: typeof sequence;
+  "http/blaster": typeof http_blaster;
+  "phoneNumbers/actions": typeof phoneNumbers_actions;
+  "phoneNumbers/model": typeof phoneNumbers_model;
+  "phoneNumbers/mutations": typeof phoneNumbers_mutations;
+  "phoneNumbers/queries": typeof phoneNumbers_queries;
+  "schema/conversations": typeof schema_conversations;
+  "schema/discovery": typeof schema_discovery;
+  "schema/messaging": typeof schema_messaging;
+  "schema/phone": typeof schema_phone;
+  "schema/sequences": typeof schema_sequences;
+  "sequence/model": typeof sequence_model;
+  "sequence/mutations": typeof sequence_mutations;
+  "sequence/queries": typeof sequence_queries;
 }>;
 
 /**

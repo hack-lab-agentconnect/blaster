@@ -55,7 +55,7 @@
     {
       "name": "TELNYX_API_KEY",
       "status": "active",
-      "consumedBy": ["apps/api/src/index.ts", "packages/core/src/telnyx/messaging/helpers/client.ts", "packages/core/src/telnyx/numbers/helpers/numbers.ts", "convex/phoneNumbers.ts"],
+      "consumedBy": ["apps/api/src/index.ts", "packages/core/src/telnyx/messaging/helpers/client.ts", "packages/core/src/telnyx/numbers/helpers/numbers.ts", "convex/phoneNumbers/model.ts"],
       "required": true,
       "secret": true,
       "description": "Telnyx API key. Sending and profile listing both fail without it."

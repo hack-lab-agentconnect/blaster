@@ -1,0 +1,100 @@
+import type { MutationCtx, QueryCtx } from "../_generated/server.js";
+import type { Doc, Id } from "../_generated/dataModel.js";
+
+/**
+ * Conversation storage helpers.
+ *
+ * Context-bound logic shared by this domain's queries and mutations: each
+ * function takes a ctx, calls core pure helpers to decide, and performs the
+ * reads and writes. No Convex function wrapper lives here, so nothing in this
+ * file is an API address on its own.
+ */
+
+export const PREVIEW_LENGTH = 120;
+export const DEFAULT_LIST_LIMIT = 50;
+export const MAX_LIST_LIMIT = 200;
+export const DEFAULT_MESSAGE_LIMIT = 200;
+export const MAX_MESSAGE_LIMIT = 500;
+
+export const clamp = (value: number | undefined, fallback: number, max: number): number =>
+  Math.min(Math.max(value ?? fallback, 1), max);
+
+export const summaryOf = (row: Doc<"conversations">) => ({
+  id: row._id,
+  phoneNumber: row.phoneNumber,
+  blasterNumber: row.blasterNumber,
+  latestMessageAt: row.latestMessageAt ?? row.createdAt,
+  latestDirection: row.latestDirection ?? null,
+  latestPreview: row.latestPreview ?? null,
+  messageCount: row.messageCount ?? 0,
+  latestMessageId: row.latestMessageId ?? null,
+});
+
+/**
+ * Which campaign a conversation belongs to, and when that is ambiguous.
+ *
+ * A contact can be enrolled in several sequences that all send from the same
+ * number, so "the campaign" is not always a single value. Silently taking the
+ * first row the query happens to return would make the inbox regroup itself
+ * between calls, so ambiguity is reported instead:
+ *
+ *   - no enrollment for this peer and number -> `unassigned`
+ *   - enrollments spanning more than one campaign -> `multiple`
+ *   - otherwise the most recent enrollment's campaign wins, with the Convex
+ *     creation time as the tie-break, which is total and stable.
+ *
+ * Returned per conversation so the client can show a thread as ambiguous
+ * rather than inventing a group for it.
+ */
+export type CampaignGroup =
+  | { kind: "unassigned" }
+  | { kind: "multiple"; campaigns: string[] }
+  | { kind: "one"; campaignId: string; sequenceId: Id<"sequences"> };
+
+export async function campaignFor(
+  ctx: QueryCtx,
+  peerNumber: string,
+  blasterNumber: string,
+): Promise<CampaignGroup> {
+  if (!peerNumber || !blasterNumber) return { kind: "unassigned" };
+  const enrollments = await ctx.db
+    .query("sequenceEnrollments")
+    .withIndex("to", (q) => q.eq("to", peerNumber))
+    .collect();
+
+  const matches: Array<{ campaignId: string; sequenceId: Id<"sequences">; rank: number }> = [];
+  for (const enrollment of enrollments) {
+    // An enrollment whose recipient was never recorded in E.164 cannot be
+    // matched to a conversation, and a stopped sequence is not sending now.
+    if (enrollment.to !== peerNumber || enrollment.status === "opted-out") continue;
+    const sequence = await ctx.db.get(enrollment.sequenceId);
+    if (!sequence || sequence.fromNumber !== blasterNumber) continue;
+    if (!sequence.campaignId) continue;
+    matches.push({
+      campaignId: sequence.campaignId,
+      sequenceId: sequence._id,
+      rank: (enrollment.enrolledAt ?? 0) * 1000 + (enrollment._creationTime % 1000),
+    });
+  }
+  if (matches.length === 0) return { kind: "unassigned" };
+
+  const campaigns = [...new Set(matches.map((m) => m.campaignId))];
+  if (campaigns.length > 1) return { kind: "multiple", campaigns: campaigns.sort() };
+  const winner = matches.reduce((best, m) => (m.rank > best.rank ? m : best));
+  return { kind: "one", campaignId: winner.campaignId, sequenceId: winner.sequenceId };
+}
+
+/** Find the conversation for a pair, creating it on first contact. */
+export async function resolveConversation(
+  ctx: MutationCtx,
+  pairKey: string,
+  phoneNumber: string,
+  blasterNumber: string,
+): Promise<Id<"conversations">> {
+  const existing = await ctx.db
+    .query("conversations")
+    .withIndex("pairKey", (q) => q.eq("pairKey", pairKey))
+    .unique();
+  if (existing) return existing._id;
+  return ctx.db.insert("conversations", { pairKey, phoneNumber, blasterNumber, createdAt: Date.now() });
+}
