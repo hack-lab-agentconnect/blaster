@@ -208,3 +208,38 @@ from `consumeSender` per send; a sequence without one keeps its fixed
 `fromNumber`, so existing behaviour is unchanged. Omit `--pool` to clear the
 assignment. The runner and its rate-limit behaviour are described in
 [sequencer.md](sequencer.md).
+
+## Inbound
+
+Pools rotate numbers, so the inbound path has to stop assuming one sending
+number per sequence. Four things move through it:
+
+- **Ownership.** A verified webhook is stored only if the `to` number is in a
+  registry we control. There are three (`packages/core/src/telnyx/messaging/helpers/ownership.ts`):
+  the Telnyx account, the Twenty `agencyPhones` mirror, and the Convex purchase
+  ledger. The ledger is the one a pool can populate before a sync, so the API's
+  ownership check reads it (`listLedgerNumbers`) — otherwise a reply to a number
+  owned only in Convex would be refused as not-owned and dropped.
+- **A reply stops the sequence.** `recordInboundMessage` stores the message and
+  calls `stopEnrollmentsForPeer` in the same transaction. That stop matches on
+  the peer alone, not on the number, so a reply on any pool number stops every
+  active enrollment for that person — which is what `stopOnReply` means. The
+  runner's own reply re-check (`loadRunContext`) is likewise peer-wide now: it
+  reads every thread the peer has, because a pool sequence has no one pair to
+  key on.
+- **Campaign attribution.** The inbox resolves a thread's campaign with
+  `campaignFor`, which matches a sequence whose `poolId` owns the thread's
+  `blasterNumber`. Without this, every pool-backed thread shows as `unassigned`.
+  A pool with one number that is also fixed elsewhere is still attributed.
+- **Threads are per number.** A contact reached from three pool numbers has
+  three conversations, because a conversation is keyed on `(peer,
+  blasterNumber)`. The campaign grouping reunites them under one campaign, but
+  the default inbox shows one row per number.
+
+Known gap: an opt-out (`STOP`) is recorded on the enrollment, and the enrollment
+is sticky, but there is no durable per-peer suppression. A later enrollment in a
+different sequence, from a different number, re-snapshots `doNotContact` from the
+Twenty prospect and can text someone who already opted out unless that field was
+updated. Pools make this more likely because they multiply the numbers a
+prospect can be reached from. Closing it means a `suppressions` table keyed on
+the E.164 peer, written by the inbound opt-out and checked at enroll and at send.

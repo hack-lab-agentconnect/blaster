@@ -57,6 +57,25 @@ describe("resolveOwnedDestination", () => {
     expect(result.destination.messagingProfileId).toBe("prof-1");
   });
 
+  test("consults the Convex ledger when neither provider registry has the number", () => {
+    // A number a pool added to the ledger but that has not reached Telnyx or
+    // Twenty yet: its inbound replies must still be stored.
+    const convex = [{ phoneNumber: "+15551230000", status: "active", messagingProfileId: "prof-5" }];
+    const result = resolveOwnedDestination("+15551230000", { telnyx: [], twenty: [], convex });
+    expect(result.status).toBe("owned");
+    if (result.status === "owned") {
+      expect(result.destination.source).toBe("convex");
+      expect(result.destination.messagingProfileId).toBe("prof-5");
+    }
+  });
+
+  test("a configured-but-empty registry is still a registry", () => {
+    // Not "no-sources": there is a registry, and it does not have the number.
+    expect(resolveOwnedDestination("+15551230000", { convex: [] })).toMatchObject({
+      status: "not-owned",
+    });
+  });
+
   test("fails closed when no registry is configured at all", () => {
     // A deployment with no number registry has no legitimate inbound either, so
     // "unknown" must never read as "owned".

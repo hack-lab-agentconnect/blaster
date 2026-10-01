@@ -62,6 +62,7 @@ import {
   addPoolNumber,
   createPool,
   getPool,
+  listLedgerNumbers,
   listPools,
   listSequences,
   removePoolNumber,
@@ -1188,7 +1189,13 @@ async function ownedSources(): Promise<OwnershipSources> {
           .then((rows) => rows.map(fromAgencyPhoneRecord))
           .catch(() => null)
       : null;
-  const sources: OwnershipSources = { telnyx, twenty };
+  // The Convex purchase ledger is the third registry. It can be ahead of the
+  // other two for a number bought through the backend, or added to a pool before
+  // a sync, and a reply to a number owned only here would otherwise be refused
+  // as not-owned and dropped.
+  const ledger = await listLedgerNumbers();
+  const convex = ledger.status === "ok" ? ledger.rows : null;
+  const sources: OwnershipSources = { telnyx, twenty, convex };
   ownershipCache = { at: Date.now(), sources };
   return sources;
 }

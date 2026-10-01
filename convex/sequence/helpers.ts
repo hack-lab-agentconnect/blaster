@@ -1,10 +1,7 @@
 import type { QueryCtx } from "../_generated/server.js";
 import type { Id } from "../_generated/dataModel.js";
 import { normaliseCountry } from "../../packages/core/src/telnyx/messaging/helpers/profile.js";
-import {
-  conversationPairKey,
-  normalizePhoneNumber,
-} from "../../packages/core/src/conversation/history/helpers/pair.js";
+import { normalizePhoneNumber } from "../../packages/core/src/conversation/history/helpers/pair.js";
 import type { RunContext } from "./types.js";
 import { stepsInOrder } from "./utils.js";
 
@@ -44,6 +41,38 @@ export async function dueEnrollmentIds(
 }
 
 /**
+ * Whether this peer has ever written in, on any of our numbers.
+ *
+ * A reply stops the sequence regardless of which Blaster number received it:
+ * `stopEnrollmentsForPeer` is number-agnostic, and a pool sequence has no single
+ * sending number to key a pair on anyway. So this asks across every thread the
+ * peer has rather than guessing one pair key — the previous fixed pair was built
+ * from the peer twice and could never match a real conversation. All the threads
+ * for one contact are a handful, so the reads stay bounded.
+ */
+async function peerHasReplied(ctx: QueryCtx, peer: string): Promise<boolean> {
+  if (!peer) return false;
+  // One contact's threads: bounded by the Blaster numbers that reached them.
+  // eslint-disable-next-line @convex-dev/no-collect-in-query
+  const conversations = await ctx.db
+    .query("conversations")
+    .withIndex("phoneNumber", (q: any) => q.eq("phoneNumber", peer))
+    .collect();
+  for (const conversation of conversations) {
+    // The whole thread, because a reply may be older than any window worth
+    // reading, and treating a missed old reply as no reply is how a stopOnReply
+    // sequence keeps sending. Bounded by one thread's length.
+    // eslint-disable-next-line @convex-dev/no-collect-in-query
+    const thread = await ctx.db
+      .query("messages")
+      .withIndex("conversation", (q: any) => q.eq("conversationId", conversation._id))
+      .collect();
+    if (thread.some((message: any) => message.direction === "inbound")) return true;
+  }
+  return false;
+}
+
+/**
  * Assemble everything one step's decision rests on, from one snapshot.
  *
  * `stopOnReply` is enforced from the stored thread rather than from the
@@ -79,7 +108,6 @@ export async function loadRunContext(
 
   const to = enrollment.to ? normalizePhoneNumber(enrollment.to) : "";
   let sentInLastDay = 0;
-  let hasReplied = false;
 
   if (to) {
     // The index range already bounds this to the last DAY_MS of messages to one
@@ -92,27 +120,9 @@ export async function loadRunContext(
     sentInLastDay = recent.filter(
       (message: any) => message.direction === "outbound" && message.sentAt >= now - DAY_MS,
     ).length;
-
-    // `to` is truthy here, so enrollment.to is too; the fallback is only there
-    // to give the compiler the narrowing `if (to)` cannot infer from a field.
-    const pairKey = conversationPairKey(normalizePhoneNumber(enrollment.to ?? ""), to);
-    const conversation = await ctx.db
-      .query("conversations")
-      .withIndex("pairKey", (q: any) => q.eq("pairKey", pairKey))
-      .unique();
-    if (conversation) {
-      // The whole thread, because "has this contact ever replied" cannot be
-      // narrowed to a range: a reply may be older than any window worth reading,
-      // and treating a missed old reply as no reply is how a stopOnReply
-      // sequence keeps sending. Bounded by one thread's length.
-      // eslint-disable-next-line @convex-dev/no-collect-in-query
-      const thread = await ctx.db
-        .query("messages")
-        .withIndex("conversation", (q: any) => q.eq("conversationId", conversation._id))
-        .collect();
-      hasReplied = thread.some((message: any) => message.direction === "inbound");
-    }
   }
+
+  const hasReplied = await peerHasReplied(ctx, to);
 
   return {
     enrollment: {

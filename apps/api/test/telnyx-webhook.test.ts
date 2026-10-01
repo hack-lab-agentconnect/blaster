@@ -8,9 +8,10 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
  *   - Real: the Ed25519 signature check, the raw-body handling, the ownership
  *     decision, the status mapping, and the HTTP status chosen for each case.
  *     Those are the parts with the security consequence.
- *   - Stubbed: the two outbound network calls the ownership lookup makes
- *     (Telnyx's owned-number list and Twenty's mirror), and the Convex write.
- *     Convex's own dedupe is covered by its own tests against the deployment.
+ *   - Stubbed: the three ownership registries the lookup reads (Telnyx's
+ *     owned-number list, Twenty's mirror, and the Convex ledger), and the Convex
+ *     write. Convex's own dedupe is covered by its own tests against the
+ *     deployment.
  */
 
 const OWNED = [{ id: "num-1", phoneNumber: "+17735550002", messagingProfileId: "prof-1", status: "active" }];
@@ -52,6 +53,7 @@ vi.mock("../src/lib/convex/index.ts", () => ({
     convexCalls.push({ telnyxMessageId: id, status });
     return statusResult;
   },
+  listLedgerNumbers: async () => ({ status: "not-configured" }),
 }));
 
 const KEYPAIR = (await crypto.subtle.generateKey({ name: "Ed25519" }, true, [

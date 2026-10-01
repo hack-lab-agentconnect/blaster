@@ -10,6 +10,7 @@ export type {
   ConversationRow,
   InboundRecordInput,
   InboundRecordResult,
+  LedgerNumber,
   MessageRow,
   PoolResult,
   ReadResult,

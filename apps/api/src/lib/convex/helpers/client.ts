@@ -347,3 +347,40 @@ export async function listSequences(): Promise<PoolResult<SequenceOption[]>> {
     }));
   });
 }
+
+/** One row of the Convex phone ledger, as the ownership check reads it. */
+export interface LedgerNumber {
+  phoneNumber: string;
+  telnyxNumberId?: string;
+  messagingProfileId?: string;
+  status?: string;
+}
+
+/**
+ * The deployment's own purchase ledger.
+ *
+ * The third ownership registry, alongside the Telnyx account and the Twenty
+ * mirror. It matters for an inbound event addressed to a number that is owned
+ * but not yet visible in either of the others: a number bought through the
+ * Convex `phoneNumbers` action, or one a pool added that had no ledger row until
+ * then. Without this source those replies would be refused as not-owned and
+ * dropped.
+ */
+export async function listLedgerNumbers(): Promise<ReadResult<LedgerNumber>> {
+  const client = convexClient();
+  if (!client) return { status: "not-configured" };
+  try {
+    const rows = await client.query(api.phoneNumbers.queries.listPhoneNumbers, {});
+    return {
+      status: "ok",
+      rows: rows.map((row) => ({
+        phoneNumber: row.phoneNumber,
+        ...(row.telnyxNumberId ? { telnyxNumberId: row.telnyxNumberId } : {}),
+        ...(row.messagingProfileId ? { messagingProfileId: row.messagingProfileId } : {}),
+        ...(row.status ? { status: row.status } : {}),
+      })),
+    };
+  } catch (error) {
+    return { status: "failed", error: error instanceof Error ? error.message : String(error) };
+  }
+}
